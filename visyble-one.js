@@ -161,13 +161,12 @@
      behalten bewusst das Milchglas aus dem Designer.
 
      Die Displacement-Map wird per Canvas als echte NORMAL-MAP berechnet,
-     nicht mehr aus zwei SVG-Verlaeufen. Grund: der Verlaufs-Ansatz aus
-     React Bits schreibt ueberhaupt kein Gruen, der Filter liest die
-     vertikale Verschiebung aber aus dem Gruen-Kanal. Ergebnis war G=0 am
-     ganzen Rand, also oben UND unten dieselbe Verschiebungsrichtung —
-     die Kapsel wurde verschoben statt gewoelbt und wirkte flach.
-     Hier bekommt jedes Pixel die Richtung SENKRECHT zur Kontur, an den
-     runden Enden also radial. Damit brechen alle vier Seiten nach innen.
+     nicht aus SVG-Verlaeufen. Grund: der Verlaufs-Ansatz aus React Bits
+     schreibt ueberhaupt kein Gruen, der Filter liest die vertikale
+     Verschiebung aber aus dem Gruen-Kanal. Ergebnis war G=0 am ganzen
+     Rand, also oben UND unten dieselbe Richtung — die Flaeche wurde
+     verschoben statt gewoelbt und wirkte flach. Hier bekommt jedes Pixel
+     die Richtung SENKRECHT zur Kontur, in den Ecken also radial.
      =================================================================== */
   (function () {
     var capsule = qs('.navbar-logo-left-container');
@@ -176,20 +175,20 @@
     /* ---------- Stellschrauben ---------- */
     var EDGE_PX = 18,    // Breite der Brechungszone in px, vom Rand nach innen.
                          // Darueber hinaus ist die Flaeche voellig ruhig.
-        GAMMA   = 2.0,   // Kruemmung des Randprofils. DAS ist der Regler fuer
-                         // "rund" statt "abgeschraegt":
+        GAMMA   = 2.0,   // Kruemmung des Randprofils. Regler fuer "rund"
+                         // statt "abgeschraegt":
                          //   1.0 = linear, liest sich als Fase
                          //   2.0 = gewoelbt, Brechung sammelt sich am Rand
                          //   3.0 = sehr eng am Rand konzentriert
-        SCALE   = -55,   // Staerke der Brechung. Negativ = Hintergrund wird von
-                         // innen geholt (Rand wirkt aufgezogen), positiv kehrt
-                         // die Richtung um.
+        SCALE   = -55,   // Staerke der Brechung. Negativ = Hintergrund wird
+                         // von innen geholt, positiv kehrt die Richtung um.
         R_OFF   = 0,     // chromatische Aberration je Kanal
         G_OFF   = 3,
         B_OFF   = 6,
         SMOOTH  = 0.8,   // Nachglaettung gegen 8-Bit-Stufen im Verlauf
         EXTRA_BLUR = 4,  // Lesbarkeit der Links
-        SAT     = 1.4;
+        SAT     = 1.4,
+        DEBOUNCE_MS = 120;  // Wartezeit nach der letzten Groessenaenderung
 
     var FID = 'nav-glass-filter';
 
@@ -239,45 +238,59 @@
       });
     }
 
+    /* ---------- Eckenradius ----------
+       Frueher fest als h/2 angenommen ("ist ja eine Pille"). Das stimmt
+       nicht mehr, sobald die Navbar auf Mobile aufklappt: dann ist sie
+       mehrere hundert px hoch, der echte Radius aber 28px. Mit der alten
+       Annahme haette die Brechung ueber die ganze Flaeche gelegen statt
+       am Rand. Deshalb den tatsaechlichen Wert lesen.
+       Deckel min(w,h)/2: groesser als die halbe kurze Seite kann ein
+       Radius nicht wirken, 999px wird so automatisch zur Pille. */
+    function cornerRadius(w, h) {
+      var raw = parseFloat(getComputedStyle(capsule).borderTopLeftRadius) || 0;
+      return Math.max(0, Math.min(raw, w / 2, h / 2));
+    }
+
     /* ---------- Normal-Map bauen ----------
        Kodierung: 128 = keine Verschiebung. Rot traegt die horizontale,
        Gruen die vertikale Komponente der Flaechennormale.
        feDisplacementMap rechnet: Versatz = scale * (Kanalwert - 0.5).
-       Dadurch ergibt sich am oberen Rand ein negativer, am unteren ein
+       Am oberen Rand entsteht dadurch ein negativer, am unteren ein
        positiver Y-Wert — gegenlaeufig, also Woelbung statt Verschiebung. */
     var mapCanvas = document.createElement('canvas');
     var mapCtx = mapCanvas.getContext('2d');
 
-    function buildMap(w, h) {
+    function buildMap(w, h, rad) {
       mapCanvas.width = w;
       mapCanvas.height = h;
 
       var img = mapCtx.createImageData(w, h);
       var data = img.data;
 
-      var r = h / 2;                 // Kapsel: Eckenradius = halbe Hoehe
-      var ax0 = r, ax1 = w - r;      // Mittelachse der Kapsel
-      if (ax1 < ax0) { ax0 = ax1 = w / 2; }   // Notfall: schmaler als hoch
-      var band = Math.min(EDGE_PX, r);        // Band nie breiter als der Radius
+      var band = Math.min(EDGE_PX, rad) || 1;   // Band nie breiter als der Radius
+
+      /* Das um den Radius eingerueckte Rechteck. Der naechste Punkt darauf
+         liefert die Richtung senkrecht zur Kontur: an den geraden Seiten
+         steht er direkt gegenueber, in den Ecken faellt er auf den
+         Eckmittelpunkt — dadurch werden die Normalen dort radial und die
+         Rundung stimmt von selbst. */
+      var ix0 = rad, ix1 = w - rad, iy0 = rad, iy1 = h - rad;
 
       for (var y = 0; y < h; y++) {
         for (var x = 0; x < w; x++) {
           var px = x + 0.5, py = y + 0.5;
 
-          /* Naechster Punkt auf der Mittelachse. Fuer die geraden Seiten
-             liegt er senkrecht darueber/darunter, an den Enden faellt er
-             auf den Achsenendpunkt — dadurch werden die Normalen dort
-             automatisch radial und die Rundung stimmt. */
-          var cx = px < ax0 ? ax0 : (px > ax1 ? ax1 : px);
-          var vx = px - cx, vy = py - r;
+          var cx = px < ix0 ? ix0 : (px > ix1 ? ix1 : px);
+          var cy = py < iy0 ? iy0 : (py > iy1 ? iy1 : py);
+          var vx = px - cx, vy = py - cy;
           var len = Math.sqrt(vx * vx + vy * vy);
 
-          var depth = r - len;       // Abstand zur Kontur, innen positiv
+          var depth = rad - len;      // Abstand zur Kontur, innen positiv
           var nx = 0, ny = 0, m = 0;
 
           if (depth > 0) {
             if (len > 0.0001) { nx = vx / len; ny = vy / len; }
-            var a = depth / band;    // 0 direkt am Rand, 1 am Bandende
+            var a = depth / band;     // 0 direkt am Rand, 1 am Bandende
             /* Potenzkurve statt linearer Rampe. Bei GAMMA 2 laeuft der
                Wert am Bandende mit Steigung 0 aus — kein sichtbarer
                Absatz zwischen Zone und ruhiger Mitte. */
@@ -287,7 +300,7 @@
           var i = (y * w + x) * 4;
           data[i]     = 128 + nx * m * 127;
           data[i + 1] = 128 + ny * m * 127;
-          data[i + 2] = 128;         // Blau ungenutzt, neutral halten
+          data[i + 2] = 128;          // Blau ungenutzt, neutral halten
           data[i + 3] = 255;
         }
       }
@@ -300,29 +313,38 @@
     buildFilter();
     var feMap = document.getElementById(FID + '-map');
 
-    var lastW = 0, lastH = 0, pending = false;
+    var PLAIN = 'blur(' + EXTRA_BLUR + 'px) saturate(' + SAT + ')';
+    var FULL  = 'url(#' + FID + ') ' + PLAIN;
 
-    function refresh() {
+    var lastW = 0, lastH = 0, lastR = -1, timer = null;
+
+    function rebuild() {
       var rect = capsule.getBoundingClientRect();
       var w = Math.round(rect.width), h = Math.round(rect.height);
       if (!w || !h) return;
-      // Nur neu rechnen, wenn sich die Groesse wirklich geaendert hat
-      if (w === lastW && h === lastH) return;
-      lastW = w; lastH = h;
-      feMap.setAttribute('href', buildMap(w, h));
+      var rad = cornerRadius(w, h);
+
+      if (w !== lastW || h !== lastH || rad !== lastR) {
+        lastW = w; lastH = h; lastR = rad;
+        feMap.setAttribute('href', buildMap(w, h, rad));
+      }
+      capsule.style.backdropFilter = FULL;   // immer wiederherstellen
     }
 
-    /* ResizeObserver feuert waehrend des Ziehens sehr oft. Pro Frame
-       hoechstens ein Neuaufbau — der Rest ist verworfene Arbeit. */
+    /* Waehrend das Menue aufklappt aendert sich die Hoehe in jedem Frame.
+       Die Map ist eine Canvas-Rechnung ueber w*h Pixel — pro Frame zu
+       teuer. Und die alte Map wuerde in der Zwischenzeit auf die neue
+       Hoehe GESTRECKT (feImage skaliert mit), die Brechung liefe also
+       kurzzeitig ueber die ganze Flaeche. Deshalb waehrend der Bewegung
+       auf reines Milchglas zuruecknehmen und einmal nachrechnen, sobald
+       es steht. */
     function schedule() {
-      if (pending) return;
-      pending = true;
-      requestAnimationFrame(function () { pending = false; refresh(); });
+      capsule.style.backdropFilter = PLAIN;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () { timer = null; rebuild(); }, DEBOUNCE_MS);
     }
 
-    refresh();
-    capsule.style.backdropFilter =
-      'url(#' + FID + ') blur(' + EXTRA_BLUR + 'px) saturate(' + SAT + ')';
+    rebuild();
     /* Die Klasse senkt im CSS die Hintergrunddeckkraft — ein zu deckender
        Hintergrund wuerde die Brechung ueberdecken. */
     capsule.classList.add('is-refracted');
