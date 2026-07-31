@@ -7,6 +7,7 @@
      01  GLOBAL    Lenis Smooth Scroll
      02  GLOBAL    Fade-Ins
      10  NAVBAR    Glas-Refraktion
+     11  NAVBAR    MOBILES PANEL (UNTER 992px)
      20  HERO      Frame Full Bleed
      30  SERVICE   Bento-Video (Lazy Load)
      31  SERVICE   Licht vom Video
@@ -363,6 +364,90 @@
 
     if (window.ResizeObserver) new ResizeObserver(schedule).observe(capsule);
     else window.addEventListener('resize', schedule);
+  })();
+
+   /* ===================================================================
+     11  NAVBAR — MOBILES PANEL (UNTER 992px)
+     Webflows Dropdown wird hier ersetzt, nicht ueberredet. Zwei Versuche,
+     es umzubiegen, sind gescheitert: nimmt man dem Overlay die absolute
+     Position, misst Webflows Navbar-JS seine Hoehe gegen eine Box, die
+     sich durch das eigene Ergebnis veraendert — die Kapsel blaeht sich auf.
+     Laesst man es absolut, sind es zwei getrennte Glasflaechen mit
+     sichtbarer Naht. Deshalb: eigenes Panel IN der Kapsel, eigener Toggle.
+     Die Liste wird VERSCHOBEN, nicht kopiert — dadurch bleiben die
+     Anker-Listener aus Block 01 an denselben Knoten haengen.
+     =================================================================== */
+  (function () {
+    var capsule = qs('.navbar-logo-left-container');
+    if (!capsule) return;
+
+    var row    = qs('.navbar-wrapper', capsule);
+    var list   = qs('.nav-menu-two', capsule);
+    var button = qs('.w-nav-button', capsule);
+    if (!row || !list || !button) return;
+
+    /* Webflows eigenen Klick-Handler abhaengen: ein Klon traegt keine
+       gebundenen Listener. Ohne das liefen zwei Zustaende parallel —
+       Webflows verstecktes Overlay und unser Panel — und der Burger
+       waere nach dem ersten Wechsel dauerhaft verdreht. */
+    var fresh = button.cloneNode(true);
+    button.parentNode.replaceChild(fresh, button);
+    button = fresh;
+    button.setAttribute('aria-expanded', 'false');
+
+    /* Panel als Geschwister DIREKT NACH der Logo-Zeile, damit es im
+       Fluss der Kapsel liegt und ihre Hoehe mitzieht. */
+    var panel = document.createElement('div');
+    panel.className = 'nav-panel';
+    var inner = document.createElement('div');
+    inner.className = 'nav-panel-inner';
+    panel.appendChild(inner);
+    row.parentNode.insertBefore(panel, row.nextSibling);
+
+    var home = list.parentNode;      // Rueckweg fuer Desktop
+    var isOpen = false;
+
+    function setOpen(state) {
+      isOpen = state;
+      capsule.classList.toggle('is-nav-open', state);
+      button.classList.toggle('w--open', state);
+      button.setAttribute('aria-expanded', state ? 'true' : 'false');
+    }
+
+    button.addEventListener('click', function (e) {
+      e.preventDefault();
+      setOpen(!isOpen);
+    });
+
+    // Klick auf einen Link schliesst — sonst bleibt das Panel beim
+    // Sprung zum Anker offen ueber dem Ziel stehen
+    list.addEventListener('click', function (e) {
+      if (e.target.closest('a')) setOpen(false);
+    });
+
+    // Klick ausserhalb der Kapsel schliesst
+    document.addEventListener('click', function (e) {
+      if (isOpen && !capsule.contains(e.target)) setOpen(false);
+    });
+
+    // ESC schliesst und gibt den Fokus zurueck
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && isOpen) { setOpen(false); button.focus(); }
+    });
+
+    /* Beim Breakpoint-Wechsel wandert die Liste zwischen Panel und
+       Webflow-Wrapper hin und her. */
+    function apply() {
+      if (MOBILE.matches) {
+        if (list.parentNode !== inner) inner.appendChild(list);
+      } else {
+        setOpen(false);
+        if (list.parentNode !== home) home.appendChild(list);
+      }
+    }
+
+    var MOBILE = onBreakpoint('(max-width: 991px)', apply);
+    apply();
   })();
 
    
