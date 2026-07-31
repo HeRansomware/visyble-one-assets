@@ -159,33 +159,37 @@
      10  NAVBAR — GLAS-REFRAKTION
      SVG-Filter in backdrop-filter kann NUR Chromium. Safari und Firefox
      behalten bewusst das Milchglas aus dem Designer.
+
+     Die Displacement-Map wird per Canvas als echte NORMAL-MAP berechnet,
+     nicht mehr aus zwei SVG-Verlaeufen. Grund: der Verlaufs-Ansatz aus
+     React Bits schreibt ueberhaupt kein Gruen, der Filter liest die
+     vertikale Verschiebung aber aus dem Gruen-Kanal. Ergebnis war G=0 am
+     ganzen Rand, also oben UND unten dieselbe Verschiebungsrichtung —
+     die Kapsel wurde verschoben statt gewoelbt und wirkte flach.
+     Hier bekommt jedes Pixel die Richtung SENKRECHT zur Kontur, an den
+     runden Enden also radial. Damit brechen alle vier Seiten nach innen.
      =================================================================== */
   (function () {
     var capsule = qs('.navbar-logo-left-container');
     if (!capsule) return;
 
     /* ---------- Stellschrauben ---------- */
-    var EDGE_PX    = 16,   // Randbreite in FESTEN px. Hochgesetzt von 10,
-                           // damit fuer den Verlauf ueberhaupt Platz ist —
-                           // bei 10px hat der Blur (14) die Zone komplett
-                           // aufgefressen, es blieb nur diffuses Weichzeichnen
-                           // statt einer erkennbaren Kante.
-        BRIGHT     = 50,
-        OPACITY    = 0.93,
-        MAP_BLUR   = 6,    // War 14 — MUSS kleiner sein als EDGE_PX, sonst
-                           // verwischt die Kante wieder in die Mitte statt
-                           // als eigene Zone erkennbar zu bleiben. Nur so viel
-                           // Weichzeichnung, dass der Uebergang nicht hart
-                           // abgeschnitten wirkt.
-        SMOOTH     = 1.1,
-        SCALE      = -90,  // War -38. Die Mitte soll ruhig bleiben, der Rand
-                           // aber sichtbar staerker brechen als vorher — genau
-                           // der Kontrast Mitte/Rand, den Apple-Glas zeigt.
-        R_OFF      = 0,
-        G_OFF      = 3,
-        B_OFF      = 6,
-        EXTRA_BLUR = 4,
-        SAT        = 1.4;
+    var EDGE_PX = 18,    // Breite der Brechungszone in px, vom Rand nach innen.
+                         // Darueber hinaus ist die Flaeche voellig ruhig.
+        GAMMA   = 2.0,   // Kruemmung des Randprofils. DAS ist der Regler fuer
+                         // "rund" statt "abgeschraegt":
+                         //   1.0 = linear, liest sich als Fase
+                         //   2.0 = gewoelbt, Brechung sammelt sich am Rand
+                         //   3.0 = sehr eng am Rand konzentriert
+        SCALE   = -55,   // Staerke der Brechung. Negativ = Hintergrund wird von
+                         // innen geholt (Rand wirkt aufgezogen), positiv kehrt
+                         // die Richtung um.
+        R_OFF   = 0,     // chromatische Aberration je Kanal
+        G_OFF   = 3,
+        B_OFF   = 6,
+        SMOOTH  = 0.8,   // Nachglaettung gegen 8-Bit-Stufen im Verlauf
+        EXTRA_BLUR = 4,  // Lesbarkeit der Links
+        SAT     = 1.4;
 
     var FID = 'nav-glass-filter';
 
@@ -235,53 +239,96 @@
       });
     }
 
-    /* ---------- Displacement-Map bauen ----------
-       Aussen ein Farbverlauf (rot horizontal, blau vertikal), innen eine
-       weichgezeichnete helle Flaeche. Der Filter liest daraus die
-       Verschiebung pro Pixel — deshalb wird nur der Rand gebrochen und
-       die Mitte bleibt ruhig. */
+    /* ---------- Normal-Map bauen ----------
+       Kodierung: 128 = keine Verschiebung. Rot traegt die horizontale,
+       Gruen die vertikale Komponente der Flaechennormale.
+       feDisplacementMap rechnet: Versatz = scale * (Kanalwert - 0.5).
+       Dadurch ergibt sich am oberen Rand ein negativer, am unteren ein
+       positiver Y-Wert — gegenlaeufig, also Woelbung statt Verschiebung. */
+    var mapCanvas = document.createElement('canvas');
+    var mapCtx = mapCanvas.getContext('2d');
+
     function buildMap(w, h) {
-      var edge = EDGE_PX;
-      var r = h / 2;
-      var inner = Math.max(0, r - edge);
-      return 'data:image/svg+xml,' + encodeURIComponent(
-        '<svg viewBox="0 0 ' + w + ' ' + h + '" xmlns="http://www.w3.org/2000/svg">' +
-        '<defs>' +
-        '<linearGradient id="a" x1="100%" y1="0%" x2="0%" y2="0%">' +
-        '<stop offset="0%" stop-color="#0000"/><stop offset="100%" stop-color="red"/>' +
-        '</linearGradient>' +
-        '<linearGradient id="b" x1="0%" y1="0%" x2="0%" y2="100%">' +
-        '<stop offset="0%" stop-color="#0000"/><stop offset="100%" stop-color="blue"/>' +
-        '</linearGradient>' +
-        '</defs>' +
-        '<rect width="' + w + '" height="' + h + '" fill="black"/>' +
-        '<rect width="' + w + '" height="' + h + '" rx="' + r + '" fill="url(#a)"/>' +
-        '<rect width="' + w + '" height="' + h + '" rx="' + r + '" fill="url(#b)" ' +
-        'style="mix-blend-mode:difference"/>' +
-        '<rect x="' + edge + '" y="' + edge + '" width="' + (w - edge * 2) +
-        '" height="' + (h - edge * 2) + '" rx="' + inner +
-        '" fill="hsl(0 0% ' + BRIGHT + '% / ' + OPACITY + ')" ' +
-        'style="filter:blur(' + MAP_BLUR + 'px)"/>' +
-        '</svg>');
+      mapCanvas.width = w;
+      mapCanvas.height = h;
+
+      var img = mapCtx.createImageData(w, h);
+      var data = img.data;
+
+      var r = h / 2;                 // Kapsel: Eckenradius = halbe Hoehe
+      var ax0 = r, ax1 = w - r;      // Mittelachse der Kapsel
+      if (ax1 < ax0) { ax0 = ax1 = w / 2; }   // Notfall: schmaler als hoch
+      var band = Math.min(EDGE_PX, r);        // Band nie breiter als der Radius
+
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          var px = x + 0.5, py = y + 0.5;
+
+          /* Naechster Punkt auf der Mittelachse. Fuer die geraden Seiten
+             liegt er senkrecht darueber/darunter, an den Enden faellt er
+             auf den Achsenendpunkt — dadurch werden die Normalen dort
+             automatisch radial und die Rundung stimmt. */
+          var cx = px < ax0 ? ax0 : (px > ax1 ? ax1 : px);
+          var vx = px - cx, vy = py - r;
+          var len = Math.sqrt(vx * vx + vy * vy);
+
+          var depth = r - len;       // Abstand zur Kontur, innen positiv
+          var nx = 0, ny = 0, m = 0;
+
+          if (depth > 0) {
+            if (len > 0.0001) { nx = vx / len; ny = vy / len; }
+            var a = depth / band;    // 0 direkt am Rand, 1 am Bandende
+            /* Potenzkurve statt linearer Rampe. Bei GAMMA 2 laeuft der
+               Wert am Bandende mit Steigung 0 aus — kein sichtbarer
+               Absatz zwischen Zone und ruhiger Mitte. */
+            if (a < 1) m = Math.pow(1 - a, GAMMA);
+          }
+
+          var i = (y * w + x) * 4;
+          data[i]     = 128 + nx * m * 127;
+          data[i + 1] = 128 + ny * m * 127;
+          data[i + 2] = 128;         // Blau ungenutzt, neutral halten
+          data[i + 3] = 255;
+        }
+      }
+
+      mapCtx.putImageData(img, 0, 0);
+      return mapCanvas.toDataURL();
     }
 
     /* ---------- Anwenden ---------- */
     buildFilter();
     var feMap = document.getElementById(FID + '-map');
 
+    var lastW = 0, lastH = 0, pending = false;
+
     function refresh() {
-      var r = capsule.getBoundingClientRect();
-      if (!r.width || !r.height) return;
-      feMap.setAttribute('href', buildMap(Math.round(r.width), Math.round(r.height)));
+      var rect = capsule.getBoundingClientRect();
+      var w = Math.round(rect.width), h = Math.round(rect.height);
+      if (!w || !h) return;
+      // Nur neu rechnen, wenn sich die Groesse wirklich geaendert hat
+      if (w === lastW && h === lastH) return;
+      lastW = w; lastH = h;
+      feMap.setAttribute('href', buildMap(w, h));
+    }
+
+    /* ResizeObserver feuert waehrend des Ziehens sehr oft. Pro Frame
+       hoechstens ein Neuaufbau — der Rest ist verworfene Arbeit. */
+    function schedule() {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(function () { pending = false; refresh(); });
     }
 
     refresh();
     capsule.style.backdropFilter =
       'url(#' + FID + ') blur(' + EXTRA_BLUR + 'px) saturate(' + SAT + ')';
+    /* Die Klasse senkt im CSS die Hintergrunddeckkraft — ein zu deckender
+       Hintergrund wuerde die Brechung ueberdecken. */
     capsule.classList.add('is-refracted');
 
-    if (window.ResizeObserver) new ResizeObserver(refresh).observe(capsule);
-    else window.addEventListener('resize', refresh);
+    if (window.ResizeObserver) new ResizeObserver(schedule).observe(capsule);
+    else window.addEventListener('resize', schedule);
   })();
 
    
