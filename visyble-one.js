@@ -17,10 +17,11 @@
      42  WORKFLOW  Scroll Stack (ab Tablet)
      50  ABOUT     Titel-Stack + Wort-Reveal
      60  PRICING   Electric Border
+     61  PRICING   Milchglas-Verzerrung
      70  FAQ       Hover-Logik
      80  CONTACT   Fill-State
      81  CONTACT   Marbles Parallax
-     99  GLOBAL    Ein Refresh fuer alle
+     82  CONTACT   Milchglas-Verzerrung
 
    Zwei Bloecke sind an ihre Position gebunden:
      01 muss frueh laufen   — konfiguriert ScrollTrigger, bevor Trigger entstehen
@@ -1467,6 +1468,29 @@
     cards.forEach(initCard);
   })();
 
+   /* ===================================================================
+     61  PRICING — MILCHGLAS-VERZERRUNG
+     Verzerrung nur an der Kante (schmales Band), Kartenmitte bleibt
+     unverzerrt — Preis und Titel muessen lesbar bleiben. Deckkraft der
+     Karten ist bereits im Designer gesetzt (#111111B8), hier kommt nur
+     die Kontur-Verzerrung obendrauf. Jede Karte bekommt einen eigenen
+     Filter, weil Card 1 (kein Badge) leicht anders hoch sein kann als 2/3.
+     =================================================================== */
+  (function () {
+    var cards = qsa('.pricing-card.grid-padding-m');
+    if (!cards.length) return;
+
+    cards.forEach(function (card, i) {
+      GLASS.build(card, 'pricing-glass-' + i, {
+        band: 12,    // schmaler als die Navbar — Card ist gross, Effekt bleibt dezent
+        gamma: 2.2,
+        scale: 34,
+        blur: 20,    // deckt sich mit dem bisherigen Designer-Wert
+        sat: 1.05
+      });
+    });
+  })();
+
   /* ===================================================================
      70  FAQ — HOVER-LOGIK
      Horizontales Akkordeon. Es ist HOVER, nicht Klick: Card 1 ist der
@@ -1580,6 +1604,25 @@
 
     if (document.readyState === 'complete') init();
     else window.addEventListener('load', init);
+  })();
+
+   /* ===================================================================
+     82  CONTACT — MILCHGLAS-VERZERRUNG
+     Gleiche Technik wie 61, eine Flaeche statt drei. contact-form-bg ist
+     groesser als eine Pricing-Card, deshalb etwas breiteres Band, sonst
+     wirkt die Kante bei der Groesse zu duenn.
+     =================================================================== */
+  (function () {
+    var bg = qs('.contact-form-bg');
+    if (!bg) return;
+
+    GLASS.build(bg, 'contact-glass', {
+      band: 20,
+      gamma: 2.0,
+      scale: 40,
+      blur: 20,
+      sat: 1.05
+    });
   })();
 
   /* ===================================================================
