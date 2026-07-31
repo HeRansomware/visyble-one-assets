@@ -165,26 +165,26 @@
     if (!capsule) return;
 
     /* ---------- Stellschrauben ---------- */
-    var BORDER     = 0.55,  // Breite der Brechungszone am Rand. War 0.07 —
-                            // bei einer ~54px hohen Kapsel ergab das nur
-                            // ~1,9px Zone: die Verzerrung schnappte hart
-                            // ein statt zu fliessen. 0.55 ergibt ~15px,
-                            // eine echte Flaeche statt einer Kante.
-        BRIGHT     = 50,     // Helligkeit der Innenflaeche der Map
+    var EDGE_PX    = 10,   // Randbreite in FESTEN px, nicht mehr von der
+                           // Kapselhoehe abhaengig. Vorherige Version rechnete
+                           // relativ zu min(w,h) — bei ~54px Kapselhoehe blieb
+                           // dem ruhigen Mittelbereich nur noch 12px, praktisch
+                           // die ganze Flaeche verzerrte. Feste 10px lassen die
+                           // Mitte in Ruhe, egal wie hoch die Kapsel ist.
+        BRIGHT     = 50,   // Helligkeit der Innenflaeche der Map
         OPACITY    = 0.93,
-        MAP_BLUR   = 18,    // War 11. Breitere Zone braucht mehr Weichzeichnung,
-                            // sonst bleibt trotz mehr Platz ein sichtbarer Rand
-                            // stehen statt eines Verlaufs.
-        SMOOTH     = 1.1,   // War 0.7. Glaettet das RGB-Blend-Ergebnis nochmal
-                            // nach, verhindert Pixel-Krisseln am Uebergang.
-        SCALE      = -65,   // War -180. Fuer die kleine alte Zone war das
-                            // ueberdimensioniert und wirkte wie ein Bildfehler
-                            // statt Lichtbrechung. Auf die breitere Zone
-                            // abgestimmt: sichtbare, aber ruhige Verformung.
-        R_OFF      = 0,     // chromatische Aberration je Kanal
-        G_OFF      = 4,     // War 10 — feiner Farbsaum statt Regenbogenrand
-        B_OFF      = 8,     // War 20
-        EXTRA_BLUR = 4,      // Lesbarkeit der Links
+        MAP_BLUR   = 14,   // Weichheit des Uebergangs Rand -> Mitte. Bei der
+                           // kleineren Zone reicht weniger als vorher, sonst
+                           // verwischt der Rand wieder in die Mitte.
+        SMOOTH     = 1.1,  // Nachglaettung des Ergebnisses
+        SCALE      = -38,  // Staerke der Brechung, negativ = nach innen.
+                           // Referenzbild ist fast ohne sichtbare Farbtrennung,
+                           // die Wirkung kommt aus der Verformung, nicht aus
+                           // RGB-Versatz — deshalb deutlich runter von -180.
+        R_OFF      = 0,    // chromatische Aberration je Kanal
+        G_OFF      = 2,    // kaum wahrnehmbarer Farbsaum statt Regenbogenrand
+        B_OFF      = 4,
+        EXTRA_BLUR = 4,    // Lesbarkeit der Links
         SAT        = 1.4;
 
     var FID = 'nav-glass-filter';
@@ -241,8 +241,8 @@
        Verschiebung pro Pixel — deshalb wird nur der Rand gebrochen und
        die Mitte bleibt ruhig. */
     function buildMap(w, h) {
-      var edge = Math.min(w, h) * (BORDER * 0.5);
-      var r = h / 2;                        // Kapsel: Radius = halbe Hoehe
+      var edge = EDGE_PX;                   // fest, nicht mehr von h abhaengig
+      var r = h / 2;                         // Kapsel: Radius = halbe Hoehe
       var inner = Math.max(0, r - edge);
       return 'data:image/svg+xml,' + encodeURIComponent(
         '<svg viewBox="0 0 ' + w + ' ' + h + '" xmlns="http://www.w3.org/2000/svg">' +
@@ -287,6 +287,7 @@
     else window.addEventListener('resize', refresh);
   })();
 
+   
   /* ===================================================================
      20  HERO — FRAME FULL BLEED
      Zieht den Rahmen aus seinem Wrapper auf volle Viewportbreite.
