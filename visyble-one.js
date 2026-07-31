@@ -155,7 +155,7 @@
     });
   })();
 
-  /* ===================================================================
+ /* ===================================================================
      10  NAVBAR — GLAS-REFRAKTION
      SVG-Filter in backdrop-filter kann NUR Chromium. Safari und Firefox
      behalten bewusst das Milchglas aus dem Designer.
@@ -165,26 +165,26 @@
     if (!capsule) return;
 
     /* ---------- Stellschrauben ---------- */
-    var EDGE_PX    = 10,   // Randbreite in FESTEN px, nicht mehr von der
-                           // Kapselhoehe abhaengig. Vorherige Version rechnete
-                           // relativ zu min(w,h) — bei ~54px Kapselhoehe blieb
-                           // dem ruhigen Mittelbereich nur noch 12px, praktisch
-                           // die ganze Flaeche verzerrte. Feste 10px lassen die
-                           // Mitte in Ruhe, egal wie hoch die Kapsel ist.
-        BRIGHT     = 50,   // Helligkeit der Innenflaeche der Map
+    var EDGE_PX    = 16,   // Randbreite in FESTEN px. Hochgesetzt von 10,
+                           // damit fuer den Verlauf ueberhaupt Platz ist —
+                           // bei 10px hat der Blur (14) die Zone komplett
+                           // aufgefressen, es blieb nur diffuses Weichzeichnen
+                           // statt einer erkennbaren Kante.
+        BRIGHT     = 50,
         OPACITY    = 0.93,
-        MAP_BLUR   = 14,   // Weichheit des Uebergangs Rand -> Mitte. Bei der
-                           // kleineren Zone reicht weniger als vorher, sonst
-                           // verwischt der Rand wieder in die Mitte.
-        SMOOTH     = 1.1,  // Nachglaettung des Ergebnisses
-        SCALE      = -38,  // Staerke der Brechung, negativ = nach innen.
-                           // Referenzbild ist fast ohne sichtbare Farbtrennung,
-                           // die Wirkung kommt aus der Verformung, nicht aus
-                           // RGB-Versatz — deshalb deutlich runter von -180.
-        R_OFF      = 0,    // chromatische Aberration je Kanal
-        G_OFF      = 2,    // kaum wahrnehmbarer Farbsaum statt Regenbogenrand
-        B_OFF      = 4,
-        EXTRA_BLUR = 4,    // Lesbarkeit der Links
+        MAP_BLUR   = 6,    // War 14 — MUSS kleiner sein als EDGE_PX, sonst
+                           // verwischt die Kante wieder in die Mitte statt
+                           // als eigene Zone erkennbar zu bleiben. Nur so viel
+                           // Weichzeichnung, dass der Uebergang nicht hart
+                           // abgeschnitten wirkt.
+        SMOOTH     = 1.1,
+        SCALE      = -90,  // War -38. Die Mitte soll ruhig bleiben, der Rand
+                           // aber sichtbar staerker brechen als vorher — genau
+                           // der Kontrast Mitte/Rand, den Apple-Glas zeigt.
+        R_OFF      = 0,
+        G_OFF      = 3,
+        B_OFF      = 6,
+        EXTRA_BLUR = 4,
         SAT        = 1.4;
 
     var FID = 'nav-glass-filter';
@@ -241,8 +241,8 @@
        Verschiebung pro Pixel — deshalb wird nur der Rand gebrochen und
        die Mitte bleibt ruhig. */
     function buildMap(w, h) {
-      var edge = EDGE_PX;                   // fest, nicht mehr von h abhaengig
-      var r = h / 2;                         // Kapsel: Radius = halbe Hoehe
+      var edge = EDGE_PX;
+      var r = h / 2;
       var inner = Math.max(0, r - edge);
       return 'data:image/svg+xml,' + encodeURIComponent(
         '<svg viewBox="0 0 ' + w + ' ' + h + '" xmlns="http://www.w3.org/2000/svg">' +
@@ -278,11 +278,8 @@
     refresh();
     capsule.style.backdropFilter =
       'url(#' + FID + ') blur(' + EXTRA_BLUR + 'px) saturate(' + SAT + ')';
-    /* Die Klasse senkt im CSS die Hintergrunddeckkraft — ein zu deckender
-       Hintergrund wuerde die Brechung ueberdecken. */
     capsule.classList.add('is-refracted');
 
-    // Die Map haengt an der gemessenen Groesse, bei Resize neu bauen
     if (window.ResizeObserver) new ResizeObserver(refresh).observe(capsule);
     else window.addEventListener('resize', refresh);
   })();
