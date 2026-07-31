@@ -155,10 +155,16 @@
     });
   })();
 
- /* ===================================================================
+/* ===================================================================
      10  NAVBAR — GLAS-REFRAKTION
      SVG-Filter in backdrop-filter kann NUR Chromium. Safari und Firefox
-     behalten bewusst das Milchglas aus dem Designer.
+     behalten das Milchglas aus dem Designer.
+
+     NUR AB DESKTOP (≥992px). Unter 992px klappt die Navbar zum Burger um,
+     die Kapsel wird dann zum hohen Panel — der Radius-Sonderfall dabei war
+     die einzige Ursache fuer die Rundungs-Klimmzuege hier drin. Auf der
+     schmalen mobilen Bar ist die Brechung ohnehin kaum wahrnehmbar, und
+     ohne sie sehen Bar und aufgeklapptes Panel garantiert gleich aus.
 
      Die Displacement-Map wird per Canvas als echte NORMAL-MAP berechnet,
      nicht aus SVG-Verlaeufen. Grund: der Verlaufs-Ansatz aus React Bits
@@ -173,22 +179,20 @@
     if (!capsule) return;
 
     /* ---------- Stellschrauben ---------- */
-    var EDGE_PX = 18,    // Breite der Brechungszone in px, vom Rand nach innen.
-                         // Darueber hinaus ist die Flaeche voellig ruhig.
+    var EDGE_PX = 18,    // Breite der Brechungszone in px, vom Rand nach innen
         GAMMA   = 2.0,   // Kruemmung des Randprofils. Regler fuer "rund"
                          // statt "abgeschraegt":
                          //   1.0 = linear, liest sich als Fase
                          //   2.0 = gewoelbt, Brechung sammelt sich am Rand
                          //   3.0 = sehr eng am Rand konzentriert
-        SCALE   = -55,   // Staerke der Brechung. Negativ = Hintergrund wird
-                         // von innen geholt, positiv kehrt die Richtung um.
+        SCALE   = -55,   // Staerke der Brechung, negativ = nach innen
         R_OFF   = 0,     // chromatische Aberration je Kanal
         G_OFF   = 3,
         B_OFF   = 6,
         SMOOTH  = 0.8,   // Nachglaettung gegen 8-Bit-Stufen im Verlauf
         EXTRA_BLUR = 4,  // Lesbarkeit der Links
         SAT     = 1.4,
-        DEBOUNCE_MS = 120;  // Wartezeit nach der letzten Groessenaenderung
+        DEBOUNCE_MS = 120;
 
     var FID = 'nav-glass-filter';
 
@@ -239,13 +243,8 @@
     }
 
     /* ---------- Eckenradius ----------
-       Frueher fest als h/2 angenommen ("ist ja eine Pille"). Das stimmt
-       nicht mehr, sobald die Navbar auf Mobile aufklappt: dann ist sie
-       mehrere hundert px hoch, der echte Radius aber 28px. Mit der alten
-       Annahme haette die Brechung ueber die ganze Flaeche gelegen statt
-       am Rand. Deshalb den tatsaechlichen Wert lesen.
-       Deckel min(w,h)/2: groesser als die halbe kurze Seite kann ein
-       Radius nicht wirken, 999px wird so automatisch zur Pille. */
+       Nicht als h/2 annehmen: der Designer setzt 999px, wirksam ist aber
+       hoechstens die halbe kurze Seite. */
     function cornerRadius(w, h) {
       var raw = parseFloat(getComputedStyle(capsule).borderTopLeftRadius) || 0;
       return Math.max(0, Math.min(raw, w / 2, h / 2));
@@ -266,7 +265,6 @@
 
       var img = mapCtx.createImageData(w, h);
       var data = img.data;
-
       var band = Math.min(EDGE_PX, rad) || 1;   // Band nie breiter als der Radius
 
       /* Das um den Radius eingerueckte Rechteck. Der naechste Punkt darauf
@@ -328,26 +326,40 @@
         lastW = w; lastH = h; lastR = rad;
         feMap.setAttribute('href', buildMap(w, h, rad));
       }
-      capsule.style.backdropFilter = FULL;   // immer wiederherstellen
+      capsule.style.backdropFilter = FULL;
     }
 
-    /* Waehrend das Menue aufklappt aendert sich die Hoehe in jedem Frame.
-       Die Map ist eine Canvas-Rechnung ueber w*h Pixel — pro Frame zu
-       teuer. Und die alte Map wuerde in der Zwischenzeit auf die neue
-       Hoehe GESTRECKT (feImage skaliert mit), die Brechung liefe also
-       kurzzeitig ueber die ganze Flaeche. Deshalb waehrend der Bewegung
+    /* Waehrend einer Groessenaenderung wuerde feImage die alte Map auf die
+       neue Flaeche STRECKEN — die Brechung liefe kurz ueber alles. Deshalb
        auf reines Milchglas zuruecknehmen und einmal nachrechnen, sobald
-       es steht. */
+       es steht. Die Map ist eine Canvas-Rechnung ueber w*h Pixel, pro
+       Frame waere sie zu teuer. */
     function schedule() {
+      if (!DESKTOP.matches) return;
       capsule.style.backdropFilter = PLAIN;
       if (timer) clearTimeout(timer);
       timer = setTimeout(function () { timer = null; rebuild(); }, DEBOUNCE_MS);
     }
 
-    rebuild();
-    /* Die Klasse senkt im CSS die Hintergrunddeckkraft — ein zu deckender
-       Hintergrund wuerde die Brechung ueberdecken. */
-    capsule.classList.add('is-refracted');
+    /* ---------- Breakpoint-Schalter ----------
+       Unter 992px die Inline-Werte komplett raeumen, damit wieder der
+       Designer-Wert der Klasse greift. */
+    function apply() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (!DESKTOP.matches) {
+        capsule.style.removeProperty('backdrop-filter');
+        capsule.classList.remove('is-refracted');
+        lastW = lastH = 0; lastR = -1;
+        return;
+      }
+      rebuild();
+      /* Die Klasse senkt im CSS die Hintergrunddeckkraft — ein zu
+         deckender Hintergrund wuerde die Brechung ueberdecken. */
+      capsule.classList.add('is-refracted');
+    }
+
+    var DESKTOP = onBreakpoint('(min-width: 992px)', apply);
+    apply();
 
     if (window.ResizeObserver) new ResizeObserver(schedule).observe(capsule);
     else window.addEventListener('resize', schedule);
