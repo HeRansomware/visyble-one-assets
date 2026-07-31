@@ -165,15 +165,25 @@
     if (!capsule) return;
 
     /* ---------- Stellschrauben ---------- */
-    var BORDER     = 0.07,   // Breite der Brechungszone am Rand
+    var BORDER     = 0.55,  // Breite der Brechungszone am Rand. War 0.07 —
+                            // bei einer ~54px hohen Kapsel ergab das nur
+                            // ~1,9px Zone: die Verzerrung schnappte hart
+                            // ein statt zu fliessen. 0.55 ergibt ~15px,
+                            // eine echte Flaeche statt einer Kante.
         BRIGHT     = 50,     // Helligkeit der Innenflaeche der Map
         OPACITY    = 0.93,
-        MAP_BLUR   = 11,     // Weichheit des Uebergangs Rand -> Mitte
-        SMOOTH     = 0.7,    // Nachglaettung des Ergebnisses
-        SCALE      = -180,   // Staerke der Brechung, negativ = nach innen
-        R_OFF      = 0,      // chromatische Aberration je Kanal
-        G_OFF      = 10,
-        B_OFF      = 20,
+        MAP_BLUR   = 18,    // War 11. Breitere Zone braucht mehr Weichzeichnung,
+                            // sonst bleibt trotz mehr Platz ein sichtbarer Rand
+                            // stehen statt eines Verlaufs.
+        SMOOTH     = 1.1,   // War 0.7. Glaettet das RGB-Blend-Ergebnis nochmal
+                            // nach, verhindert Pixel-Krisseln am Uebergang.
+        SCALE      = -65,   // War -180. Fuer die kleine alte Zone war das
+                            // ueberdimensioniert und wirkte wie ein Bildfehler
+                            // statt Lichtbrechung. Auf die breitere Zone
+                            // abgestimmt: sichtbare, aber ruhige Verformung.
+        R_OFF      = 0,     // chromatische Aberration je Kanal
+        G_OFF      = 4,     // War 10 — feiner Farbsaum statt Regenbogenrand
+        B_OFF      = 8,     // War 20
         EXTRA_BLUR = 4,      // Lesbarkeit der Links
         SAT        = 1.4;
 
