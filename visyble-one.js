@@ -6,6 +6,7 @@
      00  GLOBAL    Basis, gemeinsame Helfer
      01  GLOBAL    Lenis Smooth Scroll
      02  GLOBAL    Fade-Ins
+     03  GLOBAL    Milchglas-Verzerrung (Helfer)
      10  NAVBAR    Glas-Refraktion
      11  NAVBAR    MOBILES PANEL (UNTER 992px)
      20  HERO      Frame Full Bleed
@@ -154,6 +155,137 @@
             scrollTrigger: { trigger: header, start: 'top 85%', once: true } });
       });
     });
+  })();
+
+   /* ===================================================================
+     03  GLOBAL — MILCHGLAS-VERZERRUNG (HELFER)
+     Gemeinsame Basis fuer Block 61 (Pricing) und 82 (Contact). Gleiche
+     Technik wie Block 10 (Navbar): Normal-Map per Canvas, Richtung
+     senkrecht zur Kontur, radial in den Ecken. Bewusst OHNE die RGB-
+     Aufspaltung aus Block 10 — hier soll es milchig-ruhig wirken, nicht
+     chromatisch auffaellig wie an der Navbar.
+     =================================================================== */
+  var GLASS = (function () {
+    function supported() {
+      var ua = navigator.userAgent;
+      if ((/Safari/.test(ua) && !/Chrome/.test(ua)) || /Firefox/.test(ua)) return false;
+      var probe = document.createElement('div');
+      probe.style.backdropFilter = 'url(#probe)';
+      return probe.style.backdropFilter !== '';
+    }
+    var OK = supported();
+
+    function cornerRadius(el, w, h) {
+      var raw = parseFloat(getComputedStyle(el).borderRadius) || 0;
+      return Math.max(0, Math.min(raw, w / 2, h / 2));
+    }
+
+    /* band = Breite der Verzerrungszone in px, gamma = Kruemmung des
+       Randprofils (siehe Block 10 fuer die Herleitung). */
+    function buildMap(w, h, rad, band, gamma) {
+      var canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      var img = ctx.createImageData(w, h);
+      var data = img.data;
+      var b = Math.min(band, rad) || 1;
+      var ix0 = rad, ix1 = w - rad, iy0 = rad, iy1 = h - rad;
+
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          var px = x + 0.5, py = y + 0.5;
+          var cx = px < ix0 ? ix0 : (px > ix1 ? ix1 : px);
+          var cy = py < iy0 ? iy0 : (py > iy1 ? iy1 : py);
+          var vx = px - cx, vy = py - cy;
+          var len = Math.sqrt(vx * vx + vy * vy);
+          var depth = rad - len;
+          var nx = 0, ny = 0, m = 0;
+
+          if (depth > 0) {
+            if (len > 0.0001) { nx = vx / len; ny = vy / len; }
+            var a = depth / b;
+            if (a < 1) m = Math.pow(1 - a, gamma);
+          }
+
+          var i = (y * w + x) * 4;
+          data[i]     = 128 + nx * m * 127;
+          data[i + 1] = 128 + ny * m * 127;
+          data[i + 2] = 128;
+          data[i + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      return canvas.toDataURL();
+    }
+
+    // Legt Filter + feImage einmalig an, danach nur noch aktualisieren
+    function ensureFilter(id) {
+      var svg = document.getElementById(id + '-svg');
+      if (svg) return svg;
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('id', id + '-svg');
+      svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+      svg.innerHTML =
+        '<defs><filter id="' + id + '" color-interpolation-filters="sRGB" ' +
+        'x="0%" y="0%" width="100%" height="100%">' +
+        '<feImage id="' + id + '-map" x="0" y="0" width="100%" height="100%" ' +
+        'preserveAspectRatio="none" result="map"/>' +
+        '<feDisplacementMap in="SourceGraphic" in2="map" ' +
+        'xChannelSelector="R" yChannelSelector="G"/>' +
+        '</filter></defs>';
+      document.body.appendChild(svg);
+      return svg;
+    }
+
+    // el = Zielelement, id = eindeutige Filter-ID, opts = { band, gamma, scale, blur, sat }
+    function build(el, id, opts) {
+      if (!OK) return;
+
+      var band  = opts.band  || 14,
+          gamma = opts.gamma || 2.0,
+          scale = opts.scale || 40,
+          blur  = opts.blur  || 20,
+          sat   = opts.sat   || 1.05;
+
+      var svg = ensureFilter(id);
+      var feMap  = qs('#' + id + '-map', svg);
+      var feDisp = qs('feDisplacementMap', svg);
+
+      var lastW = 0, lastH = 0, lastR = -1;
+      var PLAIN = 'blur(' + blur + 'px) saturate(' + sat + ')';
+      var FULL  = 'url(#' + id + ') ' + PLAIN;
+
+      function rebuild() {
+        var rect = el.getBoundingClientRect();
+        var w = Math.round(rect.width), h = Math.round(rect.height);
+        if (!w || !h) return;
+        var rad = cornerRadius(el, w, h);
+
+        if (w !== lastW || h !== lastH || rad !== lastR) {
+          lastW = w; lastH = h; lastR = rad;
+          feMap.setAttribute('href', buildMap(w, h, rad, band, gamma));
+          feDisp.setAttribute('scale', String(scale));
+        }
+        el.style.backdropFilter = FULL;
+        el.style.webkitBackdropFilter = FULL;
+      }
+
+      var timer = null;
+      function schedule() {
+        // waehrend der Groessenaenderung: reines Milchglas, kein Streck-Artefakt
+        el.style.backdropFilter = PLAIN;
+        el.style.webkitBackdropFilter = PLAIN;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function () { timer = null; rebuild(); }, 150);
+      }
+
+      rebuild();
+      if (window.ResizeObserver) new ResizeObserver(schedule).observe(el);
+      else window.addEventListener('resize', schedule);
+    }
+
+    return { build: build, supported: OK };
   })();
 
 /* ===================================================================
