@@ -901,33 +901,40 @@
            vorgezogen wird. 0 = erst wenn die neue Karte klebt, dann ist
            die alte aber schon groesstenteils verdeckt. */
         HANDOVER = 0.45;
+        NAV_GAP = 16;   // sichtbarer Abstand zwischen Navbar-Unterkante und Stack
 
     var master = null, marks = [], switchMarks = [];
     var active = -1, prevScale = [], prevFill = -1;
 
     /* ---------- Messen ----------
        Einmal pro Refresh, nie pro Frame. */
-    function measure() {
-      /* Klebehoehe als CSS-Variable, damit CSS (top der Karten) und JS
-         (Schwellen) garantiert denselben Wert benutzen. Aenderst du das
-         Aside-Padding im Designer, zieht die Klebeposition automatisch nach. */
-      var base = (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
-      track.style.setProperty('--wf-stick', base + 'px');
-
-      var top = track.getBoundingClientRect().top +
-                (window.scrollY || window.pageYOffset);
-
-      // offsetTop ist die Layout-Position, sticky aendert sie nicht
-      marks = cards.map(function (c, i) {
-        return top + c.offsetTop - (base + i * STEP);
-      });
-      switchMarks = marks.map(function (m, i) {
-        return i === 0 ? m : m - HANDOVER * (m - marks[i - 1]);
-      });
-
-      prevScale = cards.map(function () { return -1; });
-      prevFill = -1;
-    }
+   function measure() {
+     var stickBase = (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
+     track.style.setProperty('--wf-stick', stickBase + 'px');
+   
+     // Navbar ist position:fixed und liegt ueber allem. Echte Hoehe messen
+     // statt raten: das Padding aendert sich pro Breakpoint (14/12/10px),
+     // ein fester Wert waere bei der naechsten Logo-/Font-Aenderung falsch.
+     var navEl = qs('.navbar-logo-left');
+     var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 72) + NAV_GAP);
+     track.style.setProperty('--nav-clear', navClear + 'px');
+   
+     var base = navClear + stickBase;
+   
+     var top = track.getBoundingClientRect().top +
+               (window.scrollY || window.pageYOffset);
+   
+     marks = cards.map(function (c, i) {
+       return top + c.offsetTop - (base + i * STEP);
+     });
+     switchMarks = marks.map(function (m, i) {
+       return i === 0 ? m : m - HANDOVER * (m - marks[i - 1]);
+     });
+   
+     prevScale = cards.map(function () { return -1; });
+     prevFill = -1;
+      }
+   }
 
     /* ---------- Zeichnen ---------- */
     function paint(y) {
