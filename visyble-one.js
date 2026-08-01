@@ -900,38 +900,39 @@
         /* Anteil der Strecke, um den der Wechsel der aktiven Karte
            vorgezogen wird. 0 = erst wenn die neue Karte klebt, dann ist
            die alte aber schon groesstenteils verdeckt. */
-        HANDOVER = 0.45;
-        NAV_GAP = 16;   // sichtbarer Abstand zwischen Navbar-Unterkante und Stack
+        HANDOVER = 0.45,
+        // Sichtbarer Abstand zwischen Navbar-Unterkante und Aside-Inhalt
+        NAV_GAP = 16;
 
     var master = null, marks = [], switchMarks = [];
     var active = -1, prevScale = [], prevFill = -1;
 
     /* ---------- Messen ----------
        Einmal pro Refresh, nie pro Frame. */
-      function measure() {
-     // Navbar ist position:fixed, Hoehe unterscheidet sich pro Breakpoint
-     // (Padding 14/12/10px). Muss VOR der Aside-Messung laufen, sonst
-     // rechnet padding-top noch mit dem alten/fehlenden Wert.
-     var navEl = qs('.navbar-logo-left');
-     var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 56) + NAV_GAP);
-     document.documentElement.style.setProperty('--nav-clear', navClear + 'px');
-   
-     var base = (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
-     track.style.setProperty('--wf-stick', base + 'px');
-   
-     var top = track.getBoundingClientRect().top +
-               (window.scrollY || window.pageYOffset);
-   
-     marks = cards.map(function (c, i) {
-       return top + c.offsetTop - (base + i * STEP);
-     });
-     switchMarks = marks.map(function (m, i) {
-       return i === 0 ? m : m - HANDOVER * (m - marks[i - 1]);
-     });
-   
-     prevScale = cards.map(function () { return -1; });
-     prevFill = -1;
-   }
+    function measure() {
+      // Navbar ist position:fixed, Hoehe unterscheidet sich pro Breakpoint
+      // (Padding 14/12/10px). Muss VOR der Aside-Messung laufen, sonst
+      // rechnet padding-top noch mit dem alten/fehlenden Wert.
+      var navEl = qs('.navbar-logo-left');
+      var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 56) + NAV_GAP);
+      document.documentElement.style.setProperty('--nav-clear', navClear + 'px');
+
+      var base = (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
+      track.style.setProperty('--wf-stick', base + 'px');
+
+      var top = track.getBoundingClientRect().top +
+                (window.scrollY || window.pageYOffset);
+
+      marks = cards.map(function (c, i) {
+        return top + c.offsetTop - (base + i * STEP);
+      });
+      switchMarks = marks.map(function (m, i) {
+        return i === 0 ? m : m - HANDOVER * (m - marks[i - 1]);
+      });
+
+      prevScale = cards.map(function () { return -1; });
+      prevFill = -1;
+    }
 
     /* ---------- Zeichnen ---------- */
     function paint(y) {
