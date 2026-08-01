@@ -1344,10 +1344,25 @@
    
 
   /* ===================================================================
-     70  FAQ — HOVER-LOGIK
-     Horizontales Akkordeon. Es ist HOVER, nicht Klick: Card 1 ist der
-     Default-Zustand, mouseenter oeffnet, mouseleave auf dem WRAPPER
-     setzt zurueck. Auf Touch schaltet es automatisch auf Klick um.
+     70  FAQ — HOVER- UND KLICK-LOGIK
+     Horizontales Akkordeon. Card 1 ist der Default-Zustand.
+
+     Zwei Eingabewelten, strikt getrennt:
+       Zeigergeraet   mouseenter oeffnet, mouseleave auf dem WRAPPER setzt
+                      zurueck. Klick nagelt den Zustand fest.
+       Touch          ausschliesslich Klick. KEIN mouseleave-Reset — Touch
+                      feuert beim Tap ein synthetisches mouseenter/mouseleave
+                      -Paar, das die gerade geoeffnete Card sofort wieder
+                      zuklappt (= "Card verkleinert sich beim Klick").
+
+     Die Erkennung laeuft LIVE ueber onBreakpoint, nicht einmalig beim
+     Laden: ein angestecktes Trackpad oder der Wechsel Tablet<->Desktop
+     aendert (hover) zur Laufzeit.
+
+     mousedown wird geblockt: der Browser scrollt ein fokussiertes Element
+     in den sichtbaren Bereich seines Scroll-Containers. Bei
+     overflow-Cards verschiebt das den Text. Tastatur-Fokus bleibt davon
+     unberuehrt — Tab funktioniert weiter.
      =================================================================== */
   (function () {
     var wrapper = qs('.faq-wrapper');
@@ -1355,23 +1370,55 @@
     if (!wrapper || !cards.length) return;
 
     var defaultCard = qs('.faq-card.is-open') || cards[0];
-    defaultCard.classList.add('is-open');
 
     function openOnly(card) {
-      cards.forEach(function (c) { c.classList.toggle('is-open', c === card); });
+      cards.forEach(function (c) {
+        var open = c === card;
+        c.classList.toggle('is-open', open);
+        c.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
     }
+    openOnly(defaultCard);
 
-    var isTouch = mm('(hover: none)').matches;
-
-    cards.forEach(function (card) {
-      card.setAttribute('tabindex', '0');            // Tastaturbedienung
-      card.addEventListener('mouseenter', function () { openOnly(card); });
-      card.addEventListener('focus', function () { openOnly(card); });
-      if (isTouch) card.addEventListener('click', function () { openOnly(card); });
+    /* Beim Wechsel des Eingabegeraets auf den Default zurueck, sonst
+       bliebe eine per Touch geoeffnete Card auf dem Zeigergeraet haengen. */
+    var HOVER = onBreakpoint('(hover: hover) and (pointer: fine)', function () {
+      openOnly(defaultCard);
     });
 
-    // Maus verlaesst die Section: zurueck auf die erste Card
-    wrapper.addEventListener('mouseleave', function () { openOnly(defaultCard); });
+    cards.forEach(function (card) {
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('role', 'button');
+
+      /* Verhindert NUR das Fokussieren per Maus/Touch, nicht den Klick.
+         Damit entfaellt der Fokus-Scroll und damit die Textverschiebung. */
+      card.addEventListener('mousedown', function (e) { e.preventDefault(); });
+
+      // Klick wirkt auf JEDEM Geraet — auf dem Desktop friert er die
+      // gehoverte Card ein, auf Touch ist er die einzige Bedienung.
+      card.addEventListener('click', function () { openOnly(card); });
+
+      card.addEventListener('mouseenter', function () {
+        if (HOVER.matches) openOnly(card);
+      });
+
+      // Erreicht durch mousedown-Block nur noch Tastaturnutzer
+      card.addEventListener('focus', function () { openOnly(card); });
+
+      // role="button" verpflichtet zu Enter/Space
+      card.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openOnly(card);
+        }
+      });
+    });
+
+    // Maus verlaesst die Section: zurueck auf die erste Card.
+    // Auf Touch NICHT — dort ist das genau der Zuklapp-Bug.
+    wrapper.addEventListener('mouseleave', function () {
+      if (HOVER.matches) openOnly(defaultCard);
+    });
   })();
 
   /* ===================================================================
