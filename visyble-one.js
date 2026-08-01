@@ -908,18 +908,16 @@
 
     /* ---------- Messen ----------
        Einmal pro Refresh, nie pro Frame. */
-   function measure() {
-     var stickBase = (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
-     track.style.setProperty('--wf-stick', stickBase + 'px');
-   
-     // Navbar ist position:fixed und liegt ueber allem. Echte Hoehe messen
-     // statt raten: das Padding aendert sich pro Breakpoint (14/12/10px),
-     // ein fester Wert waere bei der naechsten Logo-/Font-Aenderung falsch.
+      function measure() {
+     // Navbar ist position:fixed, Hoehe unterscheidet sich pro Breakpoint
+     // (Padding 14/12/10px). Muss VOR der Aside-Messung laufen, sonst
+     // rechnet padding-top noch mit dem alten/fehlenden Wert.
      var navEl = qs('.navbar-logo-left');
-     var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 72) + NAV_GAP);
-     track.style.setProperty('--nav-clear', navClear + 'px');
+     var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 56) + NAV_GAP);
+     document.documentElement.style.setProperty('--nav-clear', navClear + 'px');
    
-     var base = navClear + stickBase;
+     var base = (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
+     track.style.setProperty('--wf-stick', base + 'px');
    
      var top = track.getBoundingClientRect().top +
                (window.scrollY || window.pageYOffset);
@@ -933,7 +931,6 @@
    
      prevScale = cards.map(function () { return -1; });
      prevFill = -1;
-      }
    }
 
     /* ---------- Zeichnen ---------- */
