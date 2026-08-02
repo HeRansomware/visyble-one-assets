@@ -1173,8 +1173,12 @@
      60  PRICING — ELECTRIC BORDER
      Vanilla-Port der React-Bits-Canvas-Logik. Bewusst KEIN SVG-Filter:
      feTurbulence + feDisplacementMap ergibt Wackeln, keine Blitze.
-     Nur bei Hover aktiv — SPEED runterdrehen bringt nichts fuer die
-     Performance, rAF laeuft trotzdem mit 60fps. Auf Touch kein Effekt.
+     Desktop: nur bei Hover aktiv, SPEED runterdrehen bringt nichts fuer
+     die Performance, rAF laeuft trotzdem mit 60fps.
+     Touch/Mobile (kein Hover-Support): Sichtbarkeit im Viewport ersetzt
+     den Hover, per IntersectionObserver — dasselbe binaere
+     Sichtbar/Unsichtbar-Problem wie beim Bento-Video in Block 30, ohne
+     den ScrollTrigger-Refresh-Zyklus mitzuschleppen.
      =================================================================== */
   (function () {
     if (REDUCE) return;
@@ -1189,7 +1193,12 @@
         THICKNESS = 1.5,
         OFFSET = 60,         // Puffer gegen abgeschnittene Ausschlaege
         DISPLACE = 60,       // Ausschlag der Blitze in px
-        STOP_DELAY = 400;    // Nachlauf, sonst greift schneller Card-Wechsel nicht
+        STOP_DELAY = 400,    // Nachlauf, sonst greift schneller Card-Wechsel nicht
+        TOUCH_THRESHOLD = 0.35;  // Sichtbarkeitsanteil, ab dem Touch den Effekt startet
+
+    // Einmalig ermittelt, gilt fuer die gesamte Session (kein Resize-Fall
+    // von Touch zu Maus mitten im Besuch, den muesste man abdecken).
+    var isTouch = mm('(hover: none)').matches;
 
     /* ---------- Noise ---------- */
     function random(x) { return (Math.sin(x * 12.9898) * 43758.5453) % 1; }
@@ -1333,8 +1342,21 @@
         }, STOP_DELAY);
       }
 
-      card.addEventListener('mouseenter', start);
-      card.addEventListener('mouseleave', stop);
+      if (isTouch) {
+        // Kein Hover auf Touch: Sichtbarkeit im Viewport uebernimmt die
+        // Rolle von mouseenter/mouseleave. threshold statt einmaligem
+        // Trigger, damit der Effekt beim Weiterscrollen sauber wieder
+        // stoppt (spart Akku bei Cards, die laengst durchgescrollt sind).
+        new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) start(); else stop();
+          });
+        }, { threshold: TOUCH_THRESHOLD }).observe(card);
+      } else {
+        card.addEventListener('mouseenter', start);
+        card.addEventListener('mouseleave', stop);
+      }
+
       window.addEventListener('resize', function () { if (rafId) resize(); });
     }
 
