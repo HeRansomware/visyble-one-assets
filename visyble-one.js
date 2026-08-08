@@ -1367,80 +1367,80 @@
 
   /* ===================================================================
      70  FAQ — HOVER- UND KLICK-LOGIK
-     Horizontales Akkordeon. Card 1 ist der Default-Zustand.
+     Horizontales Akkordeon. Auf Zeigergeraeten oeffnet Hover, auf Touch
+     der Tap.
 
-     Zwei Eingabewelten, strikt getrennt:
-       Zeigergeraet   mouseenter oeffnet, mouseleave auf dem WRAPPER setzt
-                      zurueck. Klick nagelt den Zustand fest.
-       Touch          ausschliesslich Klick. KEIN mouseleave-Reset — Touch
-                      feuert beim Tap ein synthetisches mouseenter/mouseleave
-                      -Paar, das die gerade geoeffnete Card sofort wieder
-                      zuklappt (= "Card verkleinert sich beim Klick").
-
-     Die Erkennung laeuft LIVE ueber onBreakpoint, nicht einmalig beim
-     Laden: ein angestecktes Trackpad oder der Wechsel Tablet<->Desktop
-     aendert (hover) zur Laufzeit.
-
-     mousedown wird geblockt: der Browser scrollt ein fokussiertes Element
-     in den sichtbaren Bereich seines Scroll-Containers. Bei
-     overflow-Cards verschiebt das den Text. Tastatur-Fokus bleibt davon
-     unberuehrt — Tab funktioniert weiter.
+     GEAENDERT gegenueber der Vorversion:
+     1. Die Geraeteart wird LIVE abgefragt, nicht einmal beim Laden.
+        Ein iPad mit Magic Keyboard oder ein Surface wechselt zwischen
+        Touch und Maus, waehrend die Seite offen ist.
+     2. Der mouseleave-Reset auf dem Wrapper laeuft NUR auf echten
+        Zeigergeraeten. Touch-Browser synthetisieren mouseleave: tippte
+        man eine Card an und danach daneben, sprang die Auswahl hart auf
+        Card 1 zurueck — die eben geoeffnete Card fiel auf 72px zusammen.
+        Das war die Ursache fuer das "Karte verkleinert sich" auf Mobile.
+     3. Die Cards bekommen role und aria-expanded. Vorher waren es sieben
+        fokussierbare Divs ohne Rolle und ohne Zustand — ein Screenreader
+        hat nicht angesagt, dass sich beim Fokus etwas oeffnet.
+     4. Enter und Leertaste aktivieren. Mit role="button" wird das
+        erwartet, ein Div liefert es nicht von selbst.
      =================================================================== */
   (function () {
     var wrapper = qs('.faq-wrapper');
     var cards = qsa('.faq-card');
     if (!wrapper || !cards.length) return;
 
+    /* Live-Abfrage statt Momentaufnahme. matchMedia wertet bei jedem
+       .matches neu aus, der Wert ist also immer aktuell. */
+    var POINTER = mm('(hover: hover) and (pointer: fine)');
+    function hasPointer() { return POINTER.matches; }
+
     var defaultCard = qs('.faq-card.is-open') || cards[0];
 
     function openOnly(card) {
       cards.forEach(function (c) {
-        var open = c === card;
+        var open = (c === card);
         c.classList.toggle('is-open', open);
         c.setAttribute('aria-expanded', open ? 'true' : 'false');
       });
     }
-    openOnly(defaultCard);
-
-    /* Beim Wechsel des Eingabegeraets auf den Default zurueck, sonst
-       bliebe eine per Touch geoeffnete Card auf dem Zeigergeraet haengen. */
-    var HOVER = onBreakpoint('(hover: hover) and (pointer: fine)', function () {
-      openOnly(defaultCard);
-    });
 
     cards.forEach(function (card) {
       card.setAttribute('tabindex', '0');
       card.setAttribute('role', 'button');
 
-      /* Verhindert NUR das Fokussieren per Maus/Touch, nicht den Klick.
-         Damit entfaellt der Fokus-Scroll und damit die Textverschiebung. */
-      card.addEventListener('mousedown', function (e) { e.preventDefault(); });
-
-      // Klick wirkt auf JEDEM Geraet — auf dem Desktop friert er die
-      // gehoverte Card ein, auf Touch ist er die einzige Bedienung.
-      card.addEventListener('click', function () { openOnly(card); });
-
+      /* Hover oeffnet nur, wenn wirklich ein Zeiger da ist. Auf Touch
+         feuert mouseenter zwar auch, aber dort uebernimmt der Klick —
+         sonst laufen zwei Wege auf dasselbe Ziel. */
       card.addEventListener('mouseenter', function () {
-        if (HOVER.matches) openOnly(card);
+        if (hasPointer()) openOnly(card);
       });
 
-      // Erreicht durch mousedown-Block nur noch Tastaturnutzer
+      /* Tastatur: Fokus oeffnet, damit man beim Durchtabben sieht,
+         wo man ist. */
       card.addEventListener('focus', function () { openOnly(card); });
 
-      // role="button" verpflichtet zu Enter/Space
+      /* Klick immer, nicht nur auf Touch. Auf Trackpads und bei
+         Nutzern, die nach dem Hover noch bestaetigen wollen, ist das
+         das erwartete Verhalten. */
+      card.addEventListener('click', function () { openOnly(card); });
+
       card.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+          e.preventDefault();          // Leertaste wuerde sonst scrollen
           openOnly(card);
         }
       });
     });
 
-    // Maus verlaesst die Section: zurueck auf die erste Card.
-    // Auf Touch NICHT — dort ist das genau der Zuklapp-Bug.
+    /* Zuruecksetzen beim Verlassen der Section — ausschliesslich mit
+       Maus. Auf Touch bleibt die Auswahl stehen, wo der Nutzer sie
+       hingelegt hat. */
     wrapper.addEventListener('mouseleave', function () {
-      if (HOVER.matches) openOnly(defaultCard);
+      if (hasPointer()) openOnly(defaultCard);
     });
+
+    openOnly(defaultCard);
   })();
 
   /* ===================================================================
