@@ -1102,21 +1102,34 @@
       });
       titles.forEach(function (t, i) { t.style.zIndex = String(i + 1); });
 
-      var tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: stack,                  // der Stack, NICHT die Section
-          start: 'top top',
-          // Scrollweg aus der TATSAECHLICHEN Stack-Hoehe, nicht aus innerHeight
-          end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
-          pin: true,
-          pinSpacing: true,
-          scrub: true,
-          /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
-             ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
-          invalidateOnRefresh: true,
-          refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
+     var tl = gsap.timeline({
+  scrollTrigger: {
+    trigger: stack,                  // der Stack, NICHT die Section
+    start: function () {
+      // Unter 992px haengt der Workflow-Handoff an CSS-Sticky, nicht an
+      // einem GSAP-Pin. Der erste Titel soll erst kommen, wenn das Ende
+      // von .workflow-stage (inkl. 40vh-Puffer) den Viewport-Top erreicht —
+      // sonst ueberlappt das noch sichtbare Aside mit dem einsetzenden Titel.
+      if (mm('(max-width: 991px)').matches) {
+        var wf = qs('.workflow-stage');
+        if (wf) {
+          var rect = wf.getBoundingClientRect();
+          return rect.bottom + (window.scrollY || window.pageYOffset);
         }
-      });
+      }
+      return 'top top';
+    },
+    // Scrollweg aus der TATSAECHLICHEN Stack-Hoehe, nicht aus innerHeight
+    end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
+    pin: true,
+    pinSpacing: true,
+    scrub: true,
+    /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
+       ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
+    invalidateOnRefresh: true,
+    refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
+  }
+});
 
       /* Erst den VORHERIGEN hart wegschneiden, dann den neuen reinkippen,
          dann Standzeit. Nie sind zwei Titel gleichzeitig sichtbar —
