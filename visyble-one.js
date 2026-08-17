@@ -1132,6 +1132,7 @@
       // sichtbar und scrollt ein zweites Mal ganz normal mit der Seite mit.
       tl.to(titles[titles.length - 1], { autoAlpha: 0, duration: CUT, ease: 'none' });
       tl.to({}, { duration: 0.3 });      // kurzer Nachlauf im leeren Zustand
+    }
 
     /* ---------- Wort-Reveal ---------- */
     function buildWords(para, words) {
