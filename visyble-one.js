@@ -1159,7 +1159,7 @@
         scrollTrigger: {
           trigger: para,
           start: 'top 90%',
-          end: 'bottom 55%',
+          end: function () { return '+=' + Math.max(500, para.offsetHeight * 2.5); },
           /* scrub, NICHT once: ohne scrub laeuft der Reveal als Autoplay
              durch, sobald er einmal getriggert wurde. */
           scrub: true,
