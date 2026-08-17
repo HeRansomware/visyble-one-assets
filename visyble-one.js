@@ -122,11 +122,18 @@
     window.lenis = lenis;
   })();
 
-  /* ===================================================================
+ /* ===================================================================
      02  GLOBAL — FADE-INS
      Der Startzustand (opacity 0) haengt an html.fade-ready, das ein
      Inline-Script im Head sofort setzt. Faellt JS aus, wird die Klasse
      nie gesetzt und nichts ist unsichtbar — kein Blackout-Risiko.
+
+     GEAENDERT: Apple-Stil statt "Hochfahren". Kuerzerer Weg (10px statt
+     28px), expo.out statt power3.out — die Bewegung endet fast unmerklich
+     statt sichtbar auszurollen. Trigger frueher (top 92%), damit nichts
+     mehr "aufploppt", wenn es laengst im Bild ist. will-change wird nach
+     der Animation zurueckgenommen: vorher blieben Hero und alle
+     Section-Header dauerhaft als eigene Compositing-Ebene bestehen.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -135,22 +142,29 @@
     }
     if (REDUCE) return;
 
+    function releaseWillChange() {
+      this.targets().forEach(function (el) {
+        el.style.willChange = 'auto';
+      });
+    }
+
     onFonts(function () {
       // Hero: kein ScrollTrigger, liegt above the fold
       var hero = qsa('[data-fade="hero"]');
       if (hero.length) {
         gsap.fromTo(hero,
-          { opacity: 0, y: 28 },
-          { opacity: 1, y: 0, duration: 1.1, ease: 'power3.out',
-            stagger: 0.12, delay: 0.15 });
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 1.4, ease: 'expo.out',
+            stagger: 0.07, delay: 0.15, onComplete: releaseWillChange });
       }
 
       // Section-Header: direkte Kinder staffeln (Label -> Titel)
       qsa('[data-fade="header"]').forEach(function (header) {
         gsap.fromTo(header.children,
-          { opacity: 0, y: 24 },
-          { opacity: 1, y: 0, duration: 0.9, ease: 'power3.out', stagger: 0.1,
-            scrollTrigger: { trigger: header, start: 'top 85%', once: true } });
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 1.1, ease: 'expo.out', stagger: 0.06,
+            onComplete: releaseWillChange,
+            scrollTrigger: { trigger: header, start: 'top 92%', once: true } });
       });
     });
   })();
@@ -459,6 +473,10 @@
      ZENTRIERTEN Wrappern funktioniert — hero-txt-wrapper ist eine linke
      Spalte, der Rahmen lag dadurch 486px daneben.
      Kein transform verwenden: der Stacking-Context kollidiert mit Pins.
+
+     GEAENDERT: resize gedrosselt. Ungedrosselt rechnete fit() bei jedem
+     einzelnen resize-Event neu — mehrere erzwungene Layouts pro Frame,
+     besonders auf Mobile beim Ein-/Ausfahren der URL-Leiste.
      =================================================================== */
   (function () {
     var frame = qs('.hero-frame');
@@ -479,8 +497,20 @@
       frame.style.marginLeft = -left + 'px';
     }
 
+    /* Nur eine Berechnung pro Frame, egal wie oft resize dazwischen
+       feuert. Der eigentliche fit() laeuft erst im naechsten Frame. */
+    var pending = false;
+    function scheduleFit() {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(function () {
+        pending = false;
+        fit();
+      });
+    }
+
     fit();
-    window.addEventListener('resize', fit);
+    window.addEventListener('resize', scheduleFit);
     onFonts(fit);   // Fonts aendern die Textbreite und damit die Spalte
   })();
 
@@ -1176,9 +1206,13 @@
      Desktop: nur bei Hover aktiv, SPEED runterdrehen bringt nichts fuer
      die Performance, rAF laeuft trotzdem mit 60fps.
      Touch/Mobile (kein Hover-Support): Sichtbarkeit im Viewport ersetzt
-     den Hover, per IntersectionObserver — dasselbe binaere
-     Sichtbar/Unsichtbar-Problem wie beim Bento-Video in Block 30, ohne
-     den ScrollTrigger-Refresh-Zyklus mitzuschleppen.
+     den Hover, per IntersectionObserver.
+
+     GEAENDERT: EIN gemeinsamer Observer statt einem pro Karte. Vorher
+     konnten beim Scrollen zwei Karten gleichzeitig ueber der Schwelle
+     liegen und liefen dann parallel — zwei Canvas-rAF-Loops gleichzeitig,
+     unnoetiger Akkuverbrauch. Jetzt laeuft auf Touch immer nur die
+     sichtbarste Karte, der Rest wird aktiv gestoppt.
      =================================================================== */
   (function () {
     if (REDUCE) return;
@@ -1253,7 +1287,10 @@
       return cornerPoint(left + r, top + r, r, Math.PI, Math.PI / 2, (d - acc) / arc);
     }
 
-    /* ---------- Eine Karte einrichten ---------- */
+    /* ---------- Eine Karte einrichten ----------
+       Gibt start/stop nach aussen, damit die Touch-Orchestrierung
+       ausserhalb ueber alle Karten hinweg entscheiden kann, welche
+       laeuft — statt dass jede Karte sich selbst verwaltet. */
     function initCard(card) {
       var container = document.createElement('div');
       container.className = 'eb-canvas-container';
@@ -1342,27 +1379,50 @@
         }, STOP_DELAY);
       }
 
-      if (isTouch) {
-        // Kein Hover auf Touch: Sichtbarkeit im Viewport uebernimmt die
-        // Rolle von mouseenter/mouseleave. threshold statt einmaligem
-        // Trigger, damit der Effekt beim Weiterscrollen sauber wieder
-        // stoppt (spart Akku bei Cards, die laengst durchgescrollt sind).
-        new IntersectionObserver(function (entries) {
-          entries.forEach(function (entry) {
-            if (entry.isIntersecting) start(); else stop();
-          });
-        }, { threshold: TOUCH_THRESHOLD }).observe(card);
-      } else {
+      // Touch bekommt hier keinen eigenen Observer mehr — das uebernimmt
+      // die Orchestrierung unten, ueber alle Karten hinweg.
+      if (!isTouch) {
         card.addEventListener('mouseenter', start);
         card.addEventListener('mouseleave', stop);
       }
 
       window.addEventListener('resize', function () { if (rafId) resize(); });
+
+      return { start: start, stop: stop };
     }
 
-    cards.forEach(initCard);
-  })();
+    var instances = cards.map(function (card) {
+      return { card: card, api: initCard(card) };
+    });
 
+    /* ---------- Touch: EIN Observer, EINE aktive Karte ----------
+       Mehrere Thresholds statt einem einzelnen Wert: liefert bei jedem
+       Ueberschreiten einen aktuellen intersectionRatio, nicht nur ein
+       binäres "sichtbar/unsichtbar" an der 35%-Marke. Nur so laesst sich
+       zuverlaessig bestimmen, WELCHE von mehreren gleichzeitig sichtbaren
+       Karten die sichtbarste ist. */
+    if (isTouch) {
+      var THRESHOLDS = [0, 0.2, TOUCH_THRESHOLD, 0.5, 0.65, 0.8, 1];
+
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          entry.target.__ratio = entry.isIntersecting ? entry.intersectionRatio : 0;
+        });
+
+        var best = null, bestRatio = TOUCH_THRESHOLD;
+        instances.forEach(function (inst) {
+          var r = inst.card.__ratio || 0;
+          if (r >= bestRatio) { bestRatio = r; best = inst; }
+        });
+
+        instances.forEach(function (inst) {
+          if (inst === best) inst.api.start(); else inst.api.stop();
+        });
+      }, { threshold: THRESHOLDS });
+
+      instances.forEach(function (inst) { observer.observe(inst.card); });
+    }
+  })();
    
 
   /* ===================================================================
