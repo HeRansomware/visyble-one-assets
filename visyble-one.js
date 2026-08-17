@@ -1128,8 +1128,10 @@
         tl.to(title, { rotationX: 0, autoAlpha: 1, duration: 1, ease: 'power2.out' });
         tl.to({}, { duration: 0.6 });    // Standzeit
       });
-      tl.to({}, { duration: 0.5 });      // Nachlauf vor dem Loesen
-    }
+      // Letzten Titel ebenfalls wegschneiden, sonst bleibt er nach dem Loesen
+      // sichtbar und scrollt ein zweites Mal ganz normal mit der Seite mit.
+      tl.to(titles[titles.length - 1], { autoAlpha: 0, duration: CUT, ease: 'none' });
+      tl.to({}, { duration: 0.3 });      // kurzer Nachlauf im leeren Zustand
 
     /* ---------- Wort-Reveal ---------- */
     function buildWords(para, words) {
