@@ -1131,6 +1131,15 @@
           scrub: true,
           /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
              ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
+          pinType: 'transform',
+           /* pinType 'transform' statt des Defaults 'fixed'. Auf den Titeln
+             liegt ein 3D-Transform (rotationX + backfaceVisibility). In
+             Blink erzeugt fixed dafuer einen eigenen Compositing-Layer,
+             der beim Loesen des Pins nicht invalidiert wird — der letzte
+             Titel blieb als Geisterbild oben stehen, waehrend das echte
+             Element mit dem Text weiterscrollte. Mit transform bleibt das
+             Element im Fluss und wird nur verschoben, kein Layer-Wechsel.
+             WebKit war davon nie betroffen. */
           invalidateOnRefresh: true,
           refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
         }
