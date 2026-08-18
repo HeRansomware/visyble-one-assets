@@ -1038,11 +1038,25 @@
     onFonts(boot);
   })();
 
-  /* ===================================================================
+    /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL
      Drei Titel liegen uebereinander in grid-area 1/1 und kippen
      nacheinander rein. Gepinnt wird der STACK, nicht die Section — beim
      Pinnen der Section sitzt der Titel wegen des Section-Paddings zu tief.
+
+     GEAENDERT:
+     1. LEAD — leerer Vorlauf am Anfang der gepinnten Timeline. Der Stack
+        klebt bereits oben, der erste Titel kippt aber erst nach diesem
+        Scrollweg rein. Puffer, damit alles darueber (Workflow-Aside)
+        sicher aus dem Bild ist.
+     2. Der letzte Titel wird nicht mehr weggeschnitten. Er bleibt stehen
+        und scrollt nach dem Loesen des Pins normal mit nach oben.
+     3. Der Wort-Reveal haengt NICHT mehr an der Position des Absatzes.
+        Vorher lief er waehrend der letzten Pin-Phase komplett durch,
+        weil der Absatz da schon hinter dem gepinnten Titel nach oben
+        wanderte — sichtbar war davon nichts, der Text stand beim Loesen
+        des Pins fertig da. Jetzt: Start exakt am Pin-Ende, Ende wenn der
+        Absatz-Anfang oben angekommen ist.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -1052,10 +1066,17 @@
 
     /* ---------- Stellschrauben ---------- */
     var CUT = 0.12,          // Dauer des Schnitts zwischen zwei Titeln, MUSS > 0
+        LEAD = 0.8,          // leerer Vorlauf, bevor Titel 1 reinkippt.
+                             // 0 = altes Verhalten (sofort beim Pin-Start)
         PIN_FACTOR = 1.8,    // Pin-Laenge als Vielfaches der Stack-Hoehe
         WORD_DUR = 0.3,      // Dauer je Wort
         WORD_STAGGER = 0.32, // MUSS groesser sein als WORD_DUR
-        BLUR = 5;
+        BLUR = 5,
+        /* Reveal ist durch, wenn der Absatz-ANFANG auf dieser Viewport-
+           Hoehe steht (Anteil, 0 = ganz oben). Kleiner = laengerer Weg,
+           aber die ersten Zeilen laufen dabei weiter nach oben raus. */
+        REVEAL_STOP = 0.14,
+        REVEAL_MIN = 260;    // Mindest-Scrollweg des Reveals in px
 
     /* Blur nur ab Desktop UND nur bei genug Leistung: jedes Wort mit
        filter wird zu einer eigenen Compositing-Ebene, bei 30 Woertern
@@ -1088,7 +1109,9 @@
       return out;
     }
 
-    /* ---------- Titel-Pin ---------- */
+    /* ---------- Titel-Pin ----------
+       Gibt den ScrollTrigger zurueck: der Wort-Reveal braucht dessen
+       Endposition als eigenen Startpunkt. */
     function buildTitles(stack, titles) {
       /* autoAlpha statt opacity: setzt bei 0 zusaetzlich visibility:hidden.
          Der unsichtbare Titel ist damit aus dem Compositing raus, dadurch
@@ -1102,34 +1125,26 @@
       });
       titles.forEach(function (t, i) { t.style.zIndex = String(i + 1); });
 
-     var tl = gsap.timeline({
-  scrollTrigger: {
-    trigger: stack,                  // der Stack, NICHT die Section
-    start: function () {
-      // Unter 992px haengt der Workflow-Handoff an CSS-Sticky, nicht an
-      // einem GSAP-Pin. Der erste Titel soll erst kommen, wenn das Ende
-      // von .workflow-stage (inkl. 40vh-Puffer) den Viewport-Top erreicht —
-      // sonst ueberlappt das noch sichtbare Aside mit dem einsetzenden Titel.
-      if (mm('(max-width: 991px)').matches) {
-        var wf = qs('.workflow-stage');
-        if (wf) {
-          var rect = wf.getBoundingClientRect();
-          return rect.bottom + (window.scrollY || window.pageYOffset);
+      var tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: stack,                  // der Stack, NICHT die Section
+          start: 'top top',
+          // Scrollweg aus der TATSAECHLICHEN Stack-Hoehe, nicht aus innerHeight
+          end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
+          pin: true,
+          pinSpacing: true,
+          scrub: true,
+          /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
+             ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
+          invalidateOnRefresh: true,
+          refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
         }
-      }
-      return 'top top';
-    },
-    // Scrollweg aus der TATSAECHLICHEN Stack-Hoehe, nicht aus innerHeight
-    end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
-    pin: true,
-    pinSpacing: true,
-    scrub: true,
-    /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
-       ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
-    invalidateOnRefresh: true,
-    refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
-  }
-});
+      });
+
+      /* Leerer Vorlauf: der Stack haengt gepinnt oben, zeigt aber noch
+         nichts. Kostet Anteil an der Pin-Strecke, deshalb PIN_FACTOR
+         nachziehen, wenn LEAD deutlich groesser gesetzt wird. */
+      if (LEAD > 0) tl.to({}, { duration: LEAD });
 
       /* Erst den VORHERIGEN hart wegschneiden, dann den neuen reinkippen,
          dann Standzeit. Nie sind zwei Titel gleichzeitig sichtbar —
@@ -1141,14 +1156,34 @@
         tl.to(title, { rotationX: 0, autoAlpha: 1, duration: 1, ease: 'power2.out' });
         tl.to({}, { duration: 0.6 });    // Standzeit
       });
-      // Letzten Titel ebenfalls wegschneiden, sonst bleibt er nach dem Loesen
-      // sichtbar und scrollt ein zweites Mal ganz normal mit der Seite mit.
-      tl.to(titles[titles.length - 1], { autoAlpha: 0, duration: CUT, ease: 'none' });
-      tl.to({}, { duration: 0.3 });      // kurzer Nachlauf im leeren Zustand
+
+      /* Der letzte Titel bleibt bewusst stehen. Er loest sich mit dem Pin
+         und scrollt danach normal mit der Seite nach oben — genau in dem
+         Fenster, in dem der Wort-Reveal laeuft. */
+
+      return tl.scrollTrigger;
     }
 
-    /* ---------- Wort-Reveal ---------- */
-    function buildWords(para, words) {
+    /* ---------- Wort-Reveal ----------
+       Start/Ende als absolute Scrollpositionen, nicht relativ zum Absatz.
+       Sie werden bei jedem Refresh neu ausgewertet — und da dieser Trigger
+       die niedrigere refreshPriority hat, existiert der Pin-Spacer zu dem
+       Zeitpunkt bereits, die Messung stimmt also. */
+    function buildWords(para, words, pinST) {
+      function docTop() {
+        return para.getBoundingClientRect().top +
+               (window.scrollY || window.pageYOffset);
+      }
+      function startY() {
+        // Ohne Pin (Fallback): klassisch kurz bevor der Absatz reinkommt
+        return pinST ? pinST.end : docTop() - window.innerHeight * 0.85;
+      }
+      function endY() {
+        var s = startY();
+        var natural = docTop() - window.innerHeight * REVEAL_STOP;
+        return Math.max(s + REVEAL_MIN, natural);
+      }
+
       gsap.to(words, {
         opacity: 1,
         y: '0em',
@@ -1171,8 +1206,8 @@
         },
         scrollTrigger: {
           trigger: para,
-          start: 'top 90%',
-          end: function () { return '+=' + Math.max(500, para.offsetHeight * 2.5); },
+          start: startY,
+          end: endY,
           /* scrub, NICHT once: ohne scrub laeuft der Reveal als Autoplay
              durch, sobald er einmal getriggert wurde. */
           scrub: true,
@@ -1205,8 +1240,9 @@
       /* Reihenfolge ist kritisch: Der Pin verschiebt alle Positionen
          darunter. Ein Trigger, der vorher erstellt wird, rechnet ohne
          Pin-Versatz und feuert zu frueh. */
-      if (stack && titles.length) buildTitles(stack, titles);
-      if (words.length) buildWords(para, words);
+      var pinST = null;
+      if (stack && titles.length) pinST = buildTitles(stack, titles);
+      if (words.length) buildWords(para, words, pinST);
     }
 
     var started = false;
