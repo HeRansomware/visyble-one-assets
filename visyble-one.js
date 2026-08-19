@@ -1008,11 +1008,26 @@
     onFonts(boot);
   })();
 
-  /* ===================================================================
+    /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL
-     Drei Titel liegen uebereinander in grid-area 1/1 und kippen
-     nacheinander rein. Gepinnt wird der STACK, nicht die Section — beim
-     Pinnen der Section sitzt der Titel wegen des Section-Paddings zu tief.
+
+     UMBAU 19.08.2026: KEIN GSAP-PIN MEHR.
+     pin:true tauscht das Element zur Laufzeit auf position:fixed und
+     schiebt einen Pin-Spacer ins Layout. Auf iOS/WebKit springt genau
+     dieser Wechsel am Pin-ENDE — der letzte Titel verschwand dort und
+     tauchte an der Zielposition wieder auf. Im Chrome-Responsive-Modus
+     nicht reproduzierbar, weil DevTools nur den Viewport aendert, nicht
+     die Render-Engine (Blink statt WebKit).
+
+     Jetzt: [data-title-stack] ist die lange Scrollstrecke, darin klebt
+     eine per JS erzeugte Buehne (.about-title-sticky) mit position:sticky.
+     Der ScrollTrigger liegt auf dem STACK, also auf dem NICHT klebenden
+     Element — dieselbe Aufteilung wie Block 42. Ein Trigger auf einem
+     sticky-Element wuerde beim refresh() an der geklebten statt an der
+     Layout-Position gemessen.
+
+     Loest sich die Buehne am Ende, scrollt der letzte Titel von allein
+     im normalen Fluss weg, direkt gefolgt vom Text. Kein Wegfaden noetig.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -1021,8 +1036,13 @@
     }
 
     /* ---------- Stellschrauben ---------- */
-    var CUT = 0.12,          // Dauer des Schnitts zwischen zwei Titeln, MUSS > 0
-        PIN_FACTOR = 1.8,    // Pin-Laenge als Vielfaches der Stack-Hoehe
+    var TRAVEL = 75,         // Scrollweg je Titel in svh. Hoeher = laenger
+                             // steht jeder Titel. Bestimmt die Stack-Hoehe.
+        CUT = 0.12,          // Dauer des Schnitts zwischen zwei Titeln, MUSS > 0
+        HOLD = 0.6,          // Standzeit je Titel
+        TAIL = 0.5,          // Standzeit des LETZTEN Titels vor dem Loesen.
+                             // Zu klein = Titel loest sich waehrend er noch
+                             // reinkippt. Zu gross = spuerbarer Leerlauf.
         WORD_DUR = 0.3,      // Dauer je Wort
         WORD_STAGGER = 0.32, // MUSS groesser sein als WORD_DUR
         BLUR = 5;
@@ -1058,7 +1078,24 @@
       return out;
     }
 
-    /* ---------- Titel-Pin ---------- */
+    /* ---------- Sticky-Buehne erzeugen ----------
+       Die Titel werden VERSCHOBEN, nicht kopiert — sonst haengen die
+       gesetzten Attribute und spaetere Referenzen an toten Knoten.
+       Hoehe des Stacks = ein Viewport (die Buehne selbst) plus der
+       Scrollweg je Titel. Genau diese Differenz ist die Klebestrecke. */
+    function buildStage(stack, titles) {
+      var stage = qs('.about-title-sticky', stack);
+      if (!stage) {
+        stage = document.createElement('div');
+        stage.className = 'about-title-sticky';
+        stack.insertBefore(stage, stack.firstChild);
+      }
+      titles.forEach(function (t) { stage.appendChild(t); });
+      stack.style.height = (100 + titles.length * TRAVEL) + 'svh';
+      return stage;
+    }
+
+    /* ---------- Titel-Timeline ---------- */
     function buildTitles(stack, titles) {
       /* autoAlpha statt opacity: setzt bei 0 zusaetzlich visibility:hidden.
          Der unsichtbare Titel ist damit aus dem Compositing raus, dadurch
@@ -1074,17 +1111,15 @@
 
       var tl = gsap.timeline({
         scrollTrigger: {
-          trigger: stack,                  // der Stack, NICHT die Section
+          trigger: stack,              // der STACK, nicht die klebende Buehne
+          /* start/end decken exakt die Klebestrecke ab: sticky ist aktiv,
+             sobald die Stack-Oberkante oben anliegt, und loest sich, wenn
+             die Stack-Unterkante die Viewport-Unterkante erreicht. */
           start: 'top top',
-          // Scrollweg aus der TATSAECHLICHEN Stack-Hoehe, nicht aus innerHeight
-          end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
-          pin: true,
-          pinSpacing: true,
+          end: 'bottom bottom',
           scrub: true,
-          /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
-             ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
           invalidateOnRefresh: true,
-          refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
+          refreshPriority: 1           // vor dem Text-Trigger vermessen
         }
       });
 
@@ -1096,12 +1131,21 @@
           tl.to(titles[i - 1], { autoAlpha: 0, duration: CUT, ease: 'none' });
         }
         tl.to(title, { rotationX: 0, autoAlpha: 1, duration: 1, ease: 'power2.out' });
-        tl.to({}, { duration: 0.6 });    // Standzeit
+        tl.to({}, { duration: HOLD });
       });
-      tl.to({}, { duration: 0.5 });      // Nachlauf vor dem Loesen
+
+      /* Der letzte Titel wird NICHT weggefadet. Bei scrub haelt GSAP nach
+         Timeline-Ende den zuletzt gesetzten Zustand — der Titel steht also
+         sichtbar da, bis sticky ihn loslaesst, und scrollt dann normal weg. */
+      tl.to({}, { duration: TAIL });
     }
 
-    /* ---------- Wort-Reveal ---------- */
+    /* ---------- Wort-Reveal ----------
+       Ohne Pin gibt es keinen Pin-Spacer mehr, der die Position des
+       Absatzes verschiebt — die Trigger-Punkte sind reine Layoutwerte und
+       treffen deshalb da, wo sie stehen. Der Weg endet bei 'top 35%':
+       der Reveal ist fertig, wenn der Absatz im oberen Drittel steht,
+       nicht erst wenn er den Viewport verlaesst. */
     function buildWords(para, words) {
       gsap.to(words, {
         opacity: 1,
@@ -1125,8 +1169,8 @@
         },
         scrollTrigger: {
           trigger: para,
-          start: 'top 90%',
-          end: 'bottom 55%',
+          start: 'top 88%',
+          end: 'top 35%',
           /* scrub, NICHT once: ohne scrub laeuft der Reveal als Autoplay
              durch, sobald er einmal getriggert wurde. */
           scrub: true,
@@ -1154,12 +1198,15 @@
 
       titles.forEach(function (t) { t.style.opacity = ''; });
 
+      /* Reduced Motion: Buehne gar nicht erst bauen, der Stack bleibt in
+         seiner natuerlichen Hoehe und die Titel stehen untereinander.
+         Das CSS loest den Rest auf. */
       if (REDUCE) { gsap.set(titles, { autoAlpha: 1 }); return; }
 
-      /* Reihenfolge ist kritisch: Der Pin verschiebt alle Positionen
-         darunter. Ein Trigger, der vorher erstellt wird, rechnet ohne
-         Pin-Versatz und feuert zu frueh. */
-      if (stack && titles.length) buildTitles(stack, titles);
+      if (stack && titles.length) {
+        buildStage(stack, titles);
+        buildTitles(stack, titles);
+      }
       if (words.length) buildWords(para, words);
     }
 
@@ -1168,7 +1215,6 @@
     onFonts(start);
     setTimeout(start, 3000);     // Sicherheitsnetz, falls fonts.ready haengt
   })();
-
   /* ===================================================================
      60  PRICING — ELECTRIC BORDER
      Vanilla-Port der React-Bits-Canvas-Logik. Bewusst KEIN SVG-Filter:
