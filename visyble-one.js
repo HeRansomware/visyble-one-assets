@@ -1008,7 +1008,7 @@
     onFonts(boot);
   })();
 
-        /* ===================================================================
+         /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL (STICKY)
 
      KEIN GSAP-PIN. pin:true tauscht das Element zur Laufzeit auf
@@ -1017,9 +1017,9 @@
      derselbe Browser im Compositor, ohne Layout-Tausch.
 
      Die Hoehe des Stacks steht im CSS, NICHT hier. Eine hier gesetzte
-     Inline-Hoehe hat die Dokumenthoehe erst NACH dem Laden veraendert —
-     Block 41 hatte seinen Pin da bereits vermessen. Regel: dieser Block
-     veraendert KEINE Layout-Hoehen zur Laufzeit.
+     Inline-Hoehe wuerde die Dokumenthoehe erst NACH dem Laden aendern —
+     der Workflow-Pin (Block 41) hat dann bereits vermessen. Regel:
+     dieser Block veraendert KEINE Layout-Hoehen zur Laufzeit.
 
      Der ScrollTrigger liegt auf dem STACK, nicht auf der klebenden
      Buehne — ein Trigger auf einem sticky-Element wuerde beim refresh()
@@ -1113,10 +1113,21 @@
              auseinander, weil svh die Hoehe MIT ausgefahrener URL-Leiste
              ist, der echte Viewport beim Scrollen aber groesser wird —
              der Titel wanderte dadurch waehrend der Animation schon mit.
-             So sind Timeline-Ende und Sticky-Release derselbe Punkt. */
+             So sind Timeline-Ende und Sticky-Release derselbe Punkt.
+             Funktionale end-Werte wertet ScrollTrigger bei jedem refresh
+             ohnehin neu aus — dafuer braucht es kein extra Flag. */
           end: function () { return '+=' + (stack.offsetHeight - stage.offsetHeight); },
+          /* scrub:true = direkte Kopplung ohne Glaettung. Damit laeuft die
+             Sequenz beim Hochscrollen exakt rueckwaerts ab. */
           scrub: true,
-          invalidateOnRefresh: true,
+          /* KEIN invalidateOnRefresh: die Tweens haetten dann bei jedem
+             Refresh ihre Startwerte NEU aus dem DOM gelesen. Passiert das
+             mitten in der Sequenz (Resize, URL-Leiste, Refresh aus Block
+             99), merkt sich GSAP den halb rotierten Zwischenzustand als
+             Start — ab dann bleiben Titel sichtbar, die verschwunden sein
+             muessten, und das Zurueckscrollen landet nicht mehr im
+             Ausgangszustand. Die Startwerte stehen fest (gsap.set oben),
+             die Ziele sind absolut. Es gibt nichts neu zu lesen. */
           refreshPriority: 1           // vor dem Text-Trigger vermessen
         }
       });
@@ -1169,13 +1180,15 @@
           /* scrub, NICHT once: ohne scrub laeuft der Reveal als Autoplay
              durch, sobald er einmal getriggert wurde. */
           scrub: true,
-          invalidateOnRefresh: true,
+          /* KEIN invalidateOnRefresh, gleiche Begruendung wie oben: sonst
+             werden mitten im Reveal die aktuellen Wort-Zustaende als neue
+             Startwerte uebernommen und der Blur kehrt nie zurueck. */
           refreshPriority: 0
         }
       });
     }
 
-    function init(late) {
+    function init() {
       var stack = qs('[data-title-stack]');
       var para = qs('[data-reveal="text"]');
       var titles = stack ? qsa('[data-reveal="title"]', stack) : [];
@@ -1201,20 +1214,12 @@
         buildTitles(stack, stage, titles);
       }
       if (words.length) buildWords(para, words);
-
-      /* Nur wenn dieser Block ueber das 3s-Sicherheitsnetz statt ueber
-         fonts.ready gestartet ist: Block 99 hat seinen EINEN Refresh dann
-         schon hinter sich, der DOM-Umbau hier kam danach. Ohne diesen
-         Nachzug bleiben alle anderen Trigger — inklusive Workflow-Pin —
-         auf veralteten Werten stehen. Im Normalfall (fonts.ready) macht
-         Block 99 das ohnehin, deshalb hier bewusst NICHT immer. */
-      if (late) ScrollTrigger.refresh();
     }
 
     var started = false;
-    function start(late) { if (!started) { started = true; init(late); } }
-    onFonts(function () { start(false); });
-    setTimeout(function () { start(true); }, 3000);   // Sicherheitsnetz
+    function start() { if (!started) { started = true; init(); } }
+    onFonts(start);
+    setTimeout(start, 3000);     // Sicherheitsnetz, falls fonts.ready haengt
   })();
 
    
