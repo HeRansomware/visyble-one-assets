@@ -1008,21 +1008,27 @@
     onFonts(boot);
   })();
 
-     /* ===================================================================
+       /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL (STICKY)
 
-     KORREKTUR 19.08.2026: Timing war zu lang. TRAVEL war vorher PRO Titel
-     (75vh * 3 = 225vh Gesamtstrecke) — an der echten Inspo-Seite gemessen
-     (v0-mono-six.vercel.app, Computed Styles): deren Wrapper ist nur
-     ~1x Viewport-Hoehe LAENGER als die Buehne selbst, fuer alle drei Titel
-     zusammen. Daher jetzt EINE feste Gesamtstrecke (STAGE_EXTRA) statt
-     einer, die mit der Anzahl Titel waechst — das war der Grund fuer den
-     langen Leerlauf vor dem ersten Titel.
+     KEIN GSAP-PIN. pin:true tauscht das Element zur Laufzeit auf
+     position:fixed und schiebt einen Pin-Spacer ins Layout — auf
+     iOS/WebKit sprang genau dieser Wechsel am Pin-ENDE. sticky macht
+     derselbe Browser im Compositor, ohne Layout-Tausch.
 
-     Ausserdem: der LETZTE Titel bekommt keine Standzeit (HOLD) mehr,
-     nur noch eine kurze Pause (TAIL) direkt nach dem Reinkippen, dann
-     loest sich die Buehne. Vorher stand er genauso lang wie die anderen,
-     das wirkte auf der langen Gesamtstrecke wie Festkleben.
+     WICHTIG (19.08.2026): Die Hoehe des Stacks steht im CSS, NICHT hier.
+     Eine frueher hier gesetzte Inline-Hoehe hat die Dokumenthoehe erst
+     NACH dem Laden veraendert — Block 41 hatte seinen Pin zu dem
+     Zeitpunkt bereits vermessen und rechnete danach auf einer Hoehe, die
+     nicht mehr stimmte. Symptom war ein kaputter Workflow-Scroll, der
+     sich nur nach Hard-Reload richtig aufbaute (dort verschob sich die
+     Reihenfolge zufaellig). Regel daraus: dieser Block veraendert KEINE
+     Layout-Hoehen zur Laufzeit.
+
+     Der ScrollTrigger liegt auf dem STACK, also auf dem NICHT klebenden
+     Element — dieselbe Aufteilung wie Block 42. Ein Trigger auf einem
+     sticky-Element wuerde beim refresh() an der geklebten statt an der
+     Layout-Position gemessen.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -1030,17 +1036,14 @@
       return;
     }
 
-    /* ---------- Stellschrauben ---------- */
-    var STAGE_EXTRA = 90,    // Zusaetzlicher Scrollweg in svh UEBER die
-                             // gesamte Sequenz (alle Titel zusammen).
-                             // Hoeher = insgesamt langsamer/laenger.
-                             // Ersetzt das alte TRAVEL-pro-Titel.
-        CUT = 0.12,          // Dauer des Schnitts zwischen zwei Titeln, MUSS > 0
+    /* ---------- Stellschrauben ----------
+       Die Gesamtstrecke steht im CSS als height auf [data-title-stack].
+       Hier wird nur noch verteilt, WIE diese Strecke aufgeteilt wird. */
+    var CUT = 0.12,          // Dauer des Schnitts zwischen zwei Titeln, MUSS > 0
         HOLD = 0.5,          // Standzeit je Titel, AUSSER dem letzten
-        TAIL = 0.15,         // Kurze Pause NACH dem letzten Titel, bevor
+        TAIL = 0.15,         // Kurze Pause nach dem letzten Titel, bevor
                              // sich die Buehne loest. Bewusst kurz — der
-                             // Titel soll sich loesen, sobald er fertig
-                             // rotiert ist, nicht noch stehen bleiben.
+                             // Titel soll weg, sobald er fertig rotiert ist.
         WORD_DUR = 0.3,      // Dauer je Wort
         WORD_STAGGER = 0.32, // MUSS groesser sein als WORD_DUR
         BLUR = 5;
@@ -1077,10 +1080,9 @@
     }
 
     /* ---------- Sticky-Buehne erzeugen ----------
-       Die Titel werden VERSCHOBEN, nicht kopiert — sonst haengen die
-       gesetzten Attribute und spaetere Referenzen an toten Knoten.
-       Stack-Hoehe = ein Viewport (die Buehne) plus STAGE_EXTRA, FEST,
-       nicht mehr mit der Titelzahl multipliziert. */
+       Die Titel werden VERSCHOBEN, nicht kopiert — sonst haengen gesetzte
+       Attribute und spaetere Referenzen an toten Knoten.
+       Setzt bewusst KEINE Hoehe: die kommt aus dem CSS. */
     function buildStage(stack, titles) {
       var stage = qs('.about-title-sticky', stack);
       if (!stage) {
@@ -1089,7 +1091,6 @@
         stack.insertBefore(stage, stack.firstChild);
       }
       titles.forEach(function (t) { stage.appendChild(t); });
-      stack.style.height = (100 + STAGE_EXTRA) + 'svh';
       return stage;
     }
 
@@ -1110,6 +1111,9 @@
       var tl = gsap.timeline({
         scrollTrigger: {
           trigger: stack,              // der STACK, nicht die klebende Buehne
+          /* Deckt exakt die Klebestrecke ab: sticky ist aktiv, sobald die
+             Stack-Oberkante oben anliegt, und loest sich, wenn die
+             Stack-Unterkante die Viewport-Unterkante erreicht. */
           start: 'top top',
           end: 'bottom bottom',
           scrub: true,
@@ -1119,9 +1123,10 @@
       });
 
       /* Erst den VORHERIGEN hart wegschneiden, dann den neuen reinkippen.
-         Der letzte Titel bekommt NUR die kurze TAIL-Pause, keine normale
-         Standzeit — er soll sich loesen, sobald er steht, nicht noch
-         eine ganze HOLD-Laenge lang festkleben. */
+         Nie sind zwei Titel gleichzeitig sichtbar — ueberlappende
+         Schriftzuege werden auf #080808 matschig.
+         Der letzte Titel bekommt nur TAIL statt HOLD: er soll sich loesen,
+         sobald er steht, und mit dem Text hochscrollen. */
       titles.forEach(function (title, i) {
         var isLast = i === titles.length - 1;
         if (i > 0) {
@@ -1145,6 +1150,8 @@
         ease: 'none',
         duration: WORD_DUR,
         stagger: WORD_STAGGER,
+        /* will-change nur waehrend der Animation. Dauerhaft gesetzt
+           waeren es 30 permanente Compositing-Ebenen. */
         onStart: function () {
           this.targets().forEach(function (w) {
             w.style.willChange = 'transform, opacity, filter';
@@ -1160,6 +1167,8 @@
           trigger: para,
           start: 'top 88%',
           end: 'top 35%',
+          /* scrub, NICHT once: ohne scrub laeuft der Reveal als Autoplay
+             durch, sobald er einmal getriggert wurde. */
           scrub: true,
           invalidateOnRefresh: true,
           refreshPriority: 0
@@ -1185,6 +1194,7 @@
 
       titles.forEach(function (t) { t.style.opacity = ''; });
 
+      /* Reduced Motion: Buehne gar nicht bauen, das CSS loest den Rest auf. */
       if (REDUCE) { gsap.set(titles, { autoAlpha: 1 }); return; }
 
       if (stack && titles.length) {
