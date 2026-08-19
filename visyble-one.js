@@ -1008,7 +1008,7 @@
     onFonts(boot);
   })();
 
-       /* ===================================================================
+        /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL (STICKY)
 
      KEIN GSAP-PIN. pin:true tauscht das Element zur Laufzeit auf
@@ -1016,19 +1016,14 @@
      iOS/WebKit sprang genau dieser Wechsel am Pin-ENDE. sticky macht
      derselbe Browser im Compositor, ohne Layout-Tausch.
 
-     WICHTIG (19.08.2026): Die Hoehe des Stacks steht im CSS, NICHT hier.
-     Eine frueher hier gesetzte Inline-Hoehe hat die Dokumenthoehe erst
-     NACH dem Laden veraendert — Block 41 hatte seinen Pin zu dem
-     Zeitpunkt bereits vermessen und rechnete danach auf einer Hoehe, die
-     nicht mehr stimmte. Symptom war ein kaputter Workflow-Scroll, der
-     sich nur nach Hard-Reload richtig aufbaute (dort verschob sich die
-     Reihenfolge zufaellig). Regel daraus: dieser Block veraendert KEINE
-     Layout-Hoehen zur Laufzeit.
+     Die Hoehe des Stacks steht im CSS, NICHT hier. Eine hier gesetzte
+     Inline-Hoehe hat die Dokumenthoehe erst NACH dem Laden veraendert —
+     Block 41 hatte seinen Pin da bereits vermessen. Regel: dieser Block
+     veraendert KEINE Layout-Hoehen zur Laufzeit.
 
-     Der ScrollTrigger liegt auf dem STACK, also auf dem NICHT klebenden
-     Element — dieselbe Aufteilung wie Block 42. Ein Trigger auf einem
-     sticky-Element wuerde beim refresh() an der geklebten statt an der
-     Layout-Position gemessen.
+     Der ScrollTrigger liegt auf dem STACK, nicht auf der klebenden
+     Buehne — ein Trigger auf einem sticky-Element wuerde beim refresh()
+     an der geklebten statt an der Layout-Position gemessen (Block 42).
      =================================================================== */
   (function () {
     if (!GS) {
@@ -1038,7 +1033,7 @@
 
     /* ---------- Stellschrauben ----------
        Die Gesamtstrecke steht im CSS als height auf [data-title-stack].
-       Hier wird nur noch verteilt, WIE diese Strecke aufgeteilt wird. */
+       Hier wird nur verteilt, WIE diese Strecke aufgeteilt wird. */
     var CUT = 0.12,          // Dauer des Schnitts zwischen zwei Titeln, MUSS > 0
         HOLD = 0.5,          // Standzeit je Titel, AUSSER dem letzten
         TAIL = 0.15,         // Kurze Pause nach dem letzten Titel, bevor
@@ -1095,7 +1090,7 @@
     }
 
     /* ---------- Titel-Timeline ---------- */
-    function buildTitles(stack, titles) {
+    function buildTitles(stack, stage, titles) {
       /* autoAlpha statt opacity: setzt bei 0 zusaetzlich visibility:hidden.
          Der unsichtbare Titel ist damit aus dem Compositing raus, dadurch
          kein z-Fighting zwischen den drei 3D-Ebenen in grid-area 1/1. */
@@ -1111,11 +1106,15 @@
       var tl = gsap.timeline({
         scrollTrigger: {
           trigger: stack,              // der STACK, nicht die klebende Buehne
-          /* Deckt exakt die Klebestrecke ab: sticky ist aktiv, sobald die
-             Stack-Oberkante oben anliegt, und loest sich, wenn die
-             Stack-Unterkante die Viewport-Unterkante erreicht. */
-          start: 'top top',
-          end: 'bottom bottom',
+          start: 'top top',            // deckt sich mit dem Kleb-Beginn
+          /* NICHT 'bottom bottom': das rechnet gegen die gemessene
+             Viewport-Hoehe. Sticky loest aber nach (Stack - Buehne),
+             also nach einer reinen CSS-Groesse. Auf Mobile weichen beide
+             auseinander, weil svh die Hoehe MIT ausgefahrener URL-Leiste
+             ist, der echte Viewport beim Scrollen aber groesser wird —
+             der Titel wanderte dadurch waehrend der Animation schon mit.
+             So sind Timeline-Ende und Sticky-Release derselbe Punkt. */
+          end: function () { return '+=' + (stack.offsetHeight - stage.offsetHeight); },
           scrub: true,
           invalidateOnRefresh: true,
           refreshPriority: 1           // vor dem Text-Trigger vermessen
@@ -1125,7 +1124,7 @@
       /* Erst den VORHERIGEN hart wegschneiden, dann den neuen reinkippen.
          Nie sind zwei Titel gleichzeitig sichtbar — ueberlappende
          Schriftzuege werden auf #080808 matschig.
-         Der letzte Titel bekommt nur TAIL statt HOLD: er soll sich loesen,
+         Der letzte bekommt nur TAIL statt HOLD: er soll sich loesen,
          sobald er steht, und mit dem Text hochscrollen. */
       titles.forEach(function (title, i) {
         var isLast = i === titles.length - 1;
@@ -1176,7 +1175,7 @@
       });
     }
 
-    function init() {
+    function init(late) {
       var stack = qs('[data-title-stack]');
       var para = qs('[data-reveal="text"]');
       var titles = stack ? qsa('[data-reveal="title"]', stack) : [];
@@ -1198,16 +1197,24 @@
       if (REDUCE) { gsap.set(titles, { autoAlpha: 1 }); return; }
 
       if (stack && titles.length) {
-        buildStage(stack, titles);
-        buildTitles(stack, titles);
+        var stage = buildStage(stack, titles);
+        buildTitles(stack, stage, titles);
       }
       if (words.length) buildWords(para, words);
+
+      /* Nur wenn dieser Block ueber das 3s-Sicherheitsnetz statt ueber
+         fonts.ready gestartet ist: Block 99 hat seinen EINEN Refresh dann
+         schon hinter sich, der DOM-Umbau hier kam danach. Ohne diesen
+         Nachzug bleiben alle anderen Trigger — inklusive Workflow-Pin —
+         auf veralteten Werten stehen. Im Normalfall (fonts.ready) macht
+         Block 99 das ohnehin, deshalb hier bewusst NICHT immer. */
+      if (late) ScrollTrigger.refresh();
     }
 
     var started = false;
-    function start() { if (!started) { started = true; init(); } }
-    onFonts(start);
-    setTimeout(start, 3000);     // Sicherheitsnetz, falls fonts.ready haengt
+    function start(late) { if (!started) { started = true; init(late); } }
+    onFonts(function () { start(false); });
+    setTimeout(function () { start(true); }, 3000);   // Sicherheitsnetz
   })();
 
    
