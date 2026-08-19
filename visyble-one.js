@@ -1008,22 +1008,35 @@
     onFonts(boot);
   })();
 
-         /* ===================================================================
-     50  ABOUT — TITEL-STACK + WORT-REVEAL (STICKY)
+           /* ===================================================================
+     50  ABOUT — TITEL-STACK + WORT-REVEAL
 
-     KEIN GSAP-PIN. pin:true tauscht das Element zur Laufzeit auf
-     position:fixed und schiebt einen Pin-Spacer ins Layout — auf
-     iOS/WebKit sprang genau dieser Wechsel am Pin-ENDE. sticky macht
-     derselbe Browser im Compositor, ohne Layout-Tausch.
+     Drei Titel liegen uebereinander in grid-area 1/1 und kippen
+     nacheinander rein. Gepinnt wird der STACK, nicht die Section — beim
+     Pinnen der Section sitzt der Titel wegen des Section-Paddings zu tief.
 
-     Die Hoehe des Stacks steht im CSS, NICHT hier. Eine hier gesetzte
-     Inline-Hoehe wuerde die Dokumenthoehe erst NACH dem Laden aendern —
-     der Workflow-Pin (Block 41) hat dann bereits vermessen. Regel:
-     dieser Block veraendert KEINE Layout-Hoehen zur Laufzeit.
+     STAND 19.08.2026 — zwei gezielte Aenderungen gegenueber der Version,
+     die ueberall lief:
 
-     Der ScrollTrigger liegt auf dem STACK, nicht auf der klebenden
-     Buehne — ein Trigger auf einem sticky-Element wuerde beim refresh()
-     an der geklebten statt an der Layout-Position gemessen (Block 42).
+     1. pinType: 'transform'. ScrollTrigger waehlt den Pin-Typ sonst
+        selbst und nimmt auf Touch-Geraeten 'fixed'. Der Wechsel
+        static -> fixed -> static beim Loesen war die Ursache dafuer, dass
+        der letzte Titel auf dem iPhone verschwand und an der Zielposition
+        wieder auftauchte. Mit 'transform' pinnt ScrollTrigger per
+        translateY — kein Positionswechsel, kein Sprung.
+        Ein zwischenzeitlicher Umbau auf position:sticky wurde VERWORFEN:
+        der haengt an Viewport-Einheiten (svh) und an der Elternkette
+        (.content-wrapper ist ein Flex-Container) und war deshalb auf
+        Mobile nicht stabil. Der Pin ist von beidem unabhaengig.
+
+     2. Der letzte Titel wird NICHT mehr weggefadet. Bei scrub haelt GSAP
+        nach Timeline-Ende den zuletzt gesetzten Zustand — der Titel steht
+        sichtbar, bis der Pin sich loest, und scrollt dann normal mit dem
+        Text weiter nach oben.
+
+     Dieser Block veraendert KEINE Layout-Hoehen zur Laufzeit. Eine frueher
+     per JS gesetzte Stack-Hoehe hat die Dokumenthoehe nach dem Laden
+     geaendert — Block 41 hatte seinen Pin da bereits vermessen.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -1031,14 +1044,19 @@
       return;
     }
 
-    /* ---------- Stellschrauben ----------
-       Die Gesamtstrecke steht im CSS als height auf [data-title-stack].
-       Hier wird nur verteilt, WIE diese Strecke aufgeteilt wird. */
-    var CUT = 0.12,          // Dauer des Schnitts zwischen zwei Titeln, MUSS > 0
+    /* ---------- Stellschrauben ---------- */
+    var PIN_FACTOR = 1.15,   // Pin-Laenge als Vielfaches der Stack-Hoehe.
+                             // Der Stack ist 100svh hoch, das ergibt also
+                             // rund einen Viewport zusaetzlichen Scrollweg
+                             // fuer ALLE drei Titel zusammen. Gemessen an
+                             // der Inspo-Seite: deren Wrapper ist ebenfalls
+                             // nur ~1x Viewport laenger als die Buehne.
+                             // Vorher 1.8 — daher der lange Leerlauf.
+        CUT = 0.12,          // Dauer des Schnitts zwischen zwei Titeln, MUSS > 0
         HOLD = 0.5,          // Standzeit je Titel, AUSSER dem letzten
         TAIL = 0.15,         // Kurze Pause nach dem letzten Titel, bevor
-                             // sich die Buehne loest. Bewusst kurz — der
-                             // Titel soll weg, sobald er fertig rotiert ist.
+                             // der Pin sich loest. Bewusst kurz — der Titel
+                             // soll weg, sobald er fertig rotiert ist.
         WORD_DUR = 0.3,      // Dauer je Wort
         WORD_STAGGER = 0.32, // MUSS groesser sein als WORD_DUR
         BLUR = 5;
@@ -1074,23 +1092,8 @@
       return out;
     }
 
-    /* ---------- Sticky-Buehne erzeugen ----------
-       Die Titel werden VERSCHOBEN, nicht kopiert — sonst haengen gesetzte
-       Attribute und spaetere Referenzen an toten Knoten.
-       Setzt bewusst KEINE Hoehe: die kommt aus dem CSS. */
-    function buildStage(stack, titles) {
-      var stage = qs('.about-title-sticky', stack);
-      if (!stage) {
-        stage = document.createElement('div');
-        stage.className = 'about-title-sticky';
-        stack.insertBefore(stage, stack.firstChild);
-      }
-      titles.forEach(function (t) { stage.appendChild(t); });
-      return stage;
-    }
-
-    /* ---------- Titel-Timeline ---------- */
-    function buildTitles(stack, stage, titles) {
+    /* ---------- Titel-Pin ---------- */
+    function buildTitles(stack, titles) {
       /* autoAlpha statt opacity: setzt bei 0 zusaetzlich visibility:hidden.
          Der unsichtbare Titel ist damit aus dem Compositing raus, dadurch
          kein z-Fighting zwischen den drei 3D-Ebenen in grid-area 1/1. */
@@ -1105,38 +1108,36 @@
 
       var tl = gsap.timeline({
         scrollTrigger: {
-          trigger: stack,              // der STACK, nicht die klebende Buehne
-          start: 'top top',            // deckt sich mit dem Kleb-Beginn
-          /* NICHT 'bottom bottom': das rechnet gegen die gemessene
-             Viewport-Hoehe. Sticky loest aber nach (Stack - Buehne),
-             also nach einer reinen CSS-Groesse. Auf Mobile weichen beide
-             auseinander, weil svh die Hoehe MIT ausgefahrener URL-Leiste
-             ist, der echte Viewport beim Scrollen aber groesser wird —
-             der Titel wanderte dadurch waehrend der Animation schon mit.
-             So sind Timeline-Ende und Sticky-Release derselbe Punkt.
-             Funktionale end-Werte wertet ScrollTrigger bei jedem refresh
-             ohnehin neu aus — dafuer braucht es kein extra Flag. */
-          end: function () { return '+=' + (stack.offsetHeight - stage.offsetHeight); },
+          trigger: stack,                  // der Stack, NICHT die Section
+          start: 'top top',
+          // Scrollweg aus der TATSAECHLICHEN Stack-Hoehe, nicht aus innerHeight
+          end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
+          pin: true,
+          pinSpacing: true,
+          /* Siehe Blockkopf: verhindert den static/fixed-Wechsel, der auf
+             iOS den Sprung am Pin-Ende ausgeloest hat. */
+          pinType: 'transform',
           /* scrub:true = direkte Kopplung ohne Glaettung. Damit laeuft die
              Sequenz beim Hochscrollen exakt rueckwaerts ab. */
           scrub: true,
-          /* KEIN invalidateOnRefresh: die Tweens haetten dann bei jedem
-             Refresh ihre Startwerte NEU aus dem DOM gelesen. Passiert das
-             mitten in der Sequenz (Resize, URL-Leiste, Refresh aus Block
-             99), merkt sich GSAP den halb rotierten Zwischenzustand als
-             Start — ab dann bleiben Titel sichtbar, die verschwunden sein
-             muessten, und das Zurueckscrollen landet nicht mehr im
-             Ausgangszustand. Die Startwerte stehen fest (gsap.set oben),
-             die Ziele sind absolut. Es gibt nichts neu zu lesen. */
-          refreshPriority: 1           // vor dem Text-Trigger vermessen
+          /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
+             ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
+          /* KEIN invalidateOnRefresh: die Tweens wuerden dann bei jedem
+             Refresh ihre Startwerte NEU aus dem DOM lesen. Passiert das
+             mitten in der Sequenz, merkt sich GSAP den halb rotierten
+             Zwischenzustand als Start — ab dann bleiben Titel sichtbar, die
+             verschwunden sein muessten, und das Zurueckscrollen landet
+             nicht im Ausgangszustand. Die Startwerte stehen durch gsap.set
+             oben fest, die Ziele sind absolut. Der funktionale end-Wert
+             wird bei jedem Refresh ohnehin neu ausgewertet. */
+          refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
         }
       });
 
-      /* Erst den VORHERIGEN hart wegschneiden, dann den neuen reinkippen.
-         Nie sind zwei Titel gleichzeitig sichtbar — ueberlappende
-         Schriftzuege werden auf #080808 matschig.
-         Der letzte bekommt nur TAIL statt HOLD: er soll sich loesen,
-         sobald er steht, und mit dem Text hochscrollen. */
+      /* Erst den VORHERIGEN hart wegschneiden, dann den neuen reinkippen,
+         dann Standzeit. Nie sind zwei Titel gleichzeitig sichtbar —
+         ueberlappende Schriftzuege werden auf #080808 matschig.
+         Der letzte bekommt nur TAIL statt HOLD. */
       titles.forEach(function (title, i) {
         var isLast = i === titles.length - 1;
         if (i > 0) {
@@ -1145,10 +1146,6 @@
         tl.to(title, { rotationX: 0, autoAlpha: 1, duration: 1, ease: 'power2.out' });
         tl.to({}, { duration: isLast ? TAIL : HOLD });
       });
-
-      /* Kein Wegfaden am Ende: bei scrub haelt GSAP nach Timeline-Ende den
-         zuletzt gesetzten Zustand — der Titel steht sichtbar, bis sticky
-         ihn loslaesst, und scrollt dann normal mit dem Text weiter. */
     }
 
     /* ---------- Wort-Reveal ---------- */
@@ -1180,9 +1177,7 @@
           /* scrub, NICHT once: ohne scrub laeuft der Reveal als Autoplay
              durch, sobald er einmal getriggert wurde. */
           scrub: true,
-          /* KEIN invalidateOnRefresh, gleiche Begruendung wie oben: sonst
-             werden mitten im Reveal die aktuellen Wort-Zustaende als neue
-             Startwerte uebernommen und der Blur kehrt nie zurueck. */
+          /* KEIN invalidateOnRefresh, gleiche Begruendung wie oben. */
           refreshPriority: 0
         }
       });
@@ -1206,13 +1201,12 @@
 
       titles.forEach(function (t) { t.style.opacity = ''; });
 
-      /* Reduced Motion: Buehne gar nicht bauen, das CSS loest den Rest auf. */
       if (REDUCE) { gsap.set(titles, { autoAlpha: 1 }); return; }
 
-      if (stack && titles.length) {
-        var stage = buildStage(stack, titles);
-        buildTitles(stack, stage, titles);
-      }
+      /* Reihenfolge ist kritisch: Der Pin verschiebt alle Positionen
+         darunter. Ein Trigger, der vorher erstellt wird, rechnet ohne
+         Pin-Versatz und feuert zu frueh. */
+      if (stack && titles.length) buildTitles(stack, titles);
       if (words.length) buildWords(para, words);
     }
 
