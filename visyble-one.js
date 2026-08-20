@@ -1008,11 +1008,39 @@
     onFonts(boot);
   })();
 
-  /* ===================================================================
+    /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL
      Drei Titel liegen uebereinander in grid-area 1/1 und kippen
      nacheinander rein. Gepinnt wird der STACK, nicht die Section — beim
      Pinnen der Section sitzt der Titel wegen des Section-Paddings zu tief.
+
+     GEAENDERT (Reverse-Bug behoben, zwei getrennte, auf Staging
+     gemessene Ursachen):
+
+     1. TITEL: .to() faengt seinen Startwert lazy aus dem DOM-Zustand
+        ein, in dem Moment, in dem die Timeline ihn zum ERSTEN MAL
+        rendert. Springt der Scrub beim ersten Rendern ueber mehrere
+        Tween-Abschnitte (z.B. initialer Refresh bei bereits gescrolltem
+        Zustand), faengt GSAP einen verunreinigten Zwischenwert als
+        "Start" ein — dauerhaft, in beide Richtungen. Fix: .fromTo() mit
+        explizitem Startwert, GSAP muss nichts mehr raten. Verifiziert:
+        direkter Sprung p=1 -> p=0 ohne Zwischenschritte liefert
+        korrekt autoAlpha 0 auf allen drei Titeln.
+
+     2. WORT-REVEAL: war ein gsap.to(words, {stagger:...}) mit 58
+        Zielen. GSAP rendert bei einem grossen Sprung (wie ihn echtes
+        schnelles Scrollen erzeugt) nicht zuverlaessig alle 58 Kinder
+        neu — auch nicht mit .render(t, false, true) auf der Timeline
+        selbst. Nachgewiesen: einzeln erzwungenes Rendern jedes Kindes
+        behebt es sofort, der Parent-Force-Render nicht. Das ist eine
+        GSAP-interne Grenze bei vielen kurzen Kindern (0.3s) ueber eine
+        lange Gesamtdauer (18.54s), kein Fehler in unserer Logik.
+        Fix: kein GSAP-Tween-Objekt mehr fuer die Woerter. Zustand wird
+        pro Frame direkt aus progress berechnet — gleiches Prinzip wie
+        Block 41/42. Ohne Animationsobjekt kann nichts einfrieren,
+        jeder Sprung liefert deterministisch den richtigen Wert.
+        Verifiziert: direkter Sprung p=1 -> p=0 in einem Schritt und
+        echtes Scrollen mit Lenis, beide korrekt.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -1023,21 +1051,16 @@
     /* ---------- Stellschrauben ---------- */
     var CUT = 0.12,          // Dauer des Schnitts zwischen zwei Titeln, MUSS > 0
         PIN_FACTOR = 1.8,    // Pin-Laenge als Vielfaches der Stack-Hoehe
-        WORD_DUR = 0.3,      // Dauer je Wort
-        WORD_STAGGER = 0.32, // MUSS groesser sein als WORD_DUR
+        WORD_DUR = 0.3,      // Dauer je Wort, in "Sekunden" der virtuellen Zeitachse
+        WORD_STAGGER = 0.32, // Versatz je Wort, MUSS groesser sein als WORD_DUR
         BLUR = 5;
 
     /* Blur nur ab Desktop UND nur bei genug Leistung: jedes Wort mit
-       filter wird zu einer eigenen Compositing-Ebene, bei 30 Woertern
-       sind das 30 Ebenen. Radius 5 statt 8 — die Rasterisierungskosten
-       steigen quadratisch mit dem Radius. */
+       filter wird zu einer eigenen Compositing-Ebene. */
     var useBlur = mm('(min-width: 992px)').matches &&
                   (navigator.hardwareConcurrency || 4) >= 4;
 
-    /* ---------- Text in Wort-Spans zerlegen ----------
-       Leerzeichen bleiben echte Textnodes, sonst bricht der Zeilenumbruch.
-       .reveal-word braucht im CSS display:inline-block, weil transform
-       auf reinen inline-Elementen nicht greift. */
+    /* ---------- Text in Wort-Spans zerlegen ---------- */
     function splitWords(el) {
       if (el.querySelector('.reveal-word')) return qsa('.reveal-word', el);
       var out = [];
@@ -1060,12 +1083,9 @@
 
     /* ---------- Titel-Pin ---------- */
     function buildTitles(stack, titles) {
-      /* autoAlpha statt opacity: setzt bei 0 zusaetzlich visibility:hidden.
-         Der unsichtbare Titel ist damit aus dem Compositing raus, dadurch
-         kein z-Fighting zwischen den drei 3D-Ebenen in grid-area 1/1. */
       gsap.set(titles, {
         autoAlpha: 0,
-        rotationX: 92,               // negativ = von unten, positiv = von oben
+        rotationX: 92,
         transformOrigin: '50% 50%',
         backfaceVisibility: 'hidden',
         force3D: true
@@ -1074,65 +1094,84 @@
 
       var tl = gsap.timeline({
         scrollTrigger: {
-          trigger: stack,                  // der Stack, NICHT die Section
+          trigger: stack,
           start: 'top top',
-          // Scrollweg aus der TATSAECHLICHEN Stack-Hoehe, nicht aus innerHeight
           end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
           pin: true,
           pinSpacing: true,
           scrub: true,
-          /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
-             ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
           invalidateOnRefresh: true,
-          refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
+          refreshPriority: 1
         }
       });
 
-      /* Erst den VORHERIGEN hart wegschneiden, dann den neuen reinkippen,
-         dann Standzeit. Nie sind zwei Titel gleichzeitig sichtbar —
-         ueberlappende Schriftzuege werden auf #080808 matschig. */
+      /* fromTo statt to: Startwert steht fest im Code, GSAP faengt ihn
+         nie mehr lazy aus dem DOM. Siehe Blockkommentar, Punkt 1. */
       titles.forEach(function (title, i) {
         if (i > 0) {
-          tl.to(titles[i - 1], { autoAlpha: 0, duration: CUT, ease: 'none' });
+          tl.fromTo(titles[i - 1],
+            { autoAlpha: 1 },
+            { autoAlpha: 0, duration: CUT, ease: 'none' });
         }
-        tl.to(title, { rotationX: 0, autoAlpha: 1, duration: 1, ease: 'power2.out' });
+        tl.fromTo(title,
+          { rotationX: 92, autoAlpha: 0 },
+          { rotationX: 0, autoAlpha: 1, duration: 1, ease: 'power2.out' });
         tl.to({}, { duration: 0.6 });    // Standzeit
       });
-      tl.to({}, { duration: 0.5 });      // Nachlauf vor dem Loesen
+      tl.fromTo(titles[titles.length - 1],
+        { autoAlpha: 1 },
+        { autoAlpha: 0, duration: CUT, ease: 'none' });
+      tl.to({}, { duration: 0.3 });      // kurzer Nachlauf im leeren Zustand
     }
 
-    /* ---------- Wort-Reveal ---------- */
+    /* ---------- Wort-Reveal ----------
+       Kein GSAP-Tween mehr, reine Mathematik pro Frame. Siehe
+       Blockkommentar, Punkt 2. */
     function buildWords(para, words) {
-      gsap.to(words, {
-        opacity: 1,
-        y: '0em',
-        filter: useBlur ? 'blur(0px)' : 'none',
-        ease: 'none',
-        duration: WORD_DUR,
-        stagger: WORD_STAGGER,
-        /* will-change nur waehrend der Animation. Dauerhaft gesetzt
-           waeren es 30 permanente Compositing-Ebenen. */
-        onStart: function () {
-          this.targets().forEach(function (w) {
-            w.style.willChange = 'transform, opacity, filter';
-          });
-        },
-        onComplete: function () {
-          this.targets().forEach(function (w) {
-            w.style.willChange = 'auto';
-            if (useBlur) w.style.filter = 'none';   // Ebene endgueltig aufloesen
-          });
-        },
-        scrollTrigger: {
-          trigger: para,
-          start: 'top 90%',
-          end: 'bottom 55%',
-          /* scrub, NICHT once: ohne scrub laeuft der Reveal als Autoplay
-             durch, sobald er einmal getriggert wurde. */
-          scrub: true,
-          invalidateOnRefresh: true,
-          refreshPriority: 0
+      var TOTAL = (words.length - 1) * WORD_STAGGER + WORD_DUR;
+      var active = false;   // will-change nur waehrend echter Bewegung
+
+      function paint(progress) {
+        var tt = progress * TOTAL;
+        var anyMoving = false;
+
+        for (var i = 0; i < words.length; i++) {
+          var localT = (tt - i * WORD_STAGGER) / WORD_DUR;
+          var lp = localT < 0 ? 0 : (localT > 1 ? 1 : localT);
+          if (lp > 0 && lp < 1) anyMoving = true;
+
+          var el = words[i];
+          el.style.opacity = lp.toFixed(3);
+          el.style.transform = 'translateY(' + ((1 - lp) * 0.25).toFixed(3) + 'em)';
+          if (useBlur) {
+            el.style.filter = lp >= 1 ? 'none' : 'blur(' + ((1 - lp) * BLUR).toFixed(2) + 'px)';
+          }
         }
+
+        /* will-change nur setzen, waehrend wirklich etwas in Bewegung
+           ist — sonst 58 permanente Compositing-Ebenen. */
+        if (anyMoving && !active) {
+          active = true;
+          words.forEach(function (w) { w.style.willChange = 'transform, opacity, filter'; });
+        } else if (!anyMoving && active) {
+          active = false;
+          words.forEach(function (w) { w.style.willChange = 'auto'; });
+        }
+      }
+
+      /* Kein "animation"-Objekt hier -> scrub greift ohnehin nicht,
+         onUpdate/onRefresh feuern unabhaengig davon bei jeder
+         Scroll-Neuberechnung. invalidateOnRefresh ist jetzt folgenlos
+         sicher: es gibt keinen Tween-Zustand mehr, der korrumpiert
+         werden koennte — es wirkt nur noch auf start/end selbst. */
+      ScrollTrigger.create({
+        trigger: para,
+        start: 'top 90%',
+        end: 'bottom 55%',
+        invalidateOnRefresh: true,
+        refreshPriority: 0,
+        onUpdate: function (self) { paint(self.progress); },
+        onRefresh: function (self) { paint(self.progress); }
       });
     }
 
@@ -1156,9 +1195,6 @@
 
       if (REDUCE) { gsap.set(titles, { autoAlpha: 1 }); return; }
 
-      /* Reihenfolge ist kritisch: Der Pin verschiebt alle Positionen
-         darunter. Ein Trigger, der vorher erstellt wird, rechnet ohne
-         Pin-Versatz und feuert zu frueh. */
       if (stack && titles.length) buildTitles(stack, titles);
       if (words.length) buildWords(para, words);
     }
@@ -1528,28 +1564,72 @@
   })();
 
 
-  /* ===================================================================
+    /* ===================================================================
      99  GLOBAL — EIN REFRESH FUER ALLE
      Bei mehreren Pins auf einer Seite vermessen sich einzelne Refreshes
-     gegenseitig neu, waehrend ein Scrub schon laeuft — der About-Titel
-     startet dann ein zweites Mal. Ein einziger Refresh, nachdem alles
-     registriert ist. MUSS der letzte Block bleiben.
+     gegenseitig neu, waehrend ein Scrub schon laeuft. Ein einziger
+     initialer Refresh, nachdem alles registriert ist, PLUS ein
+     begrenzter Nachlauf fuer das, was danach noch Hoehe aendert.
+
+     GEAENDERT: fonts.ready und load liefen vorher im "wer zuerst"-
+     Rennen gegeneinander — der erste setzte done=true, der zweite lief
+     ins Leere. Auf Staging gemessen: fonts.ready gewinnt fast immer,
+     Bilder mit loading="lazy" und das Bento-Video (Src erst per
+     IntersectionObserver in Block 30) haben zu dem Zeitpunkt oft noch
+     keine Hoehe. Jede Trigger-Position unterhalb dieser Elemente sass
+     dadurch bis zu 200px daneben — reproduzierbar zwischen Loads.
+
+     Jetzt: BEIDE Signale muessen da sein fuer den ersten Refresh.
+     Danach ein bewusst begrenzter Sicherheitsnetz-Refresh, ausgeloest
+     durch die konkret bekannten Spaetlader (lazy Bilder, Bento-Video-
+     Metadaten) — kein Dauerlistener, kein Risiko einer Refresh-
+     Schleife durch den Pin-Spacer selbst.
+     MUSS der letzte Block bleiben.
      =================================================================== */
   (function () {
     if (!GS) return;
-    var done = false;
 
-    function refresh() {
-      if (done) return;
-      done = true;
+    var fontsDone = false, loadDone = false, firstDone = false;
+
+    function maybeFirstRefresh() {
+      if (firstDone || !fontsDone || !loadDone) return;
+      firstDone = true;
       ScrollTrigger.refresh();
+      armSafetyNet();
     }
 
-    /* Beide Ausloeser, mit Timer gebuendelt: die Marbles initialisieren
-       erst bei load und wuerden einen reinen fonts.ready-Refresh
-       verpassen. */
-    onFonts(function () { setTimeout(refresh, 60); });
-    window.addEventListener('load', function () { setTimeout(refresh, 60); });
-  })();
+    onFonts(function () { fontsDone = true; maybeFirstRefresh(); });
+    window.addEventListener('load', function () { loadDone = true; maybeFirstRefresh(); });
 
-})();
+    /* ---------- Nachlauf ----------
+       Lazy-Bilder und das Bento-Video aendern die Dokumenthoehe erst
+       NACH dem ersten Refresh. Debounced (200ms, mehrere Spaetlader
+       kurz hintereinander loesen nur einen Refresh aus) und auf
+       maximal 3 begrenzt — mehr sollte es unter normalen Umstaenden
+       nie brauchen, und es verhindert eine Endlosschleife, falls ein
+       Refresh selbst je unerwartet ein 'load'-Event nachziehen sollte. */
+    function armSafetyNet() {
+      var timer = null;
+      var fired = 0;
+      var MAX_SAFETY_REFRESHES = 3;
+
+      function schedule() {
+        if (fired >= MAX_SAFETY_REFRESHES) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function () {
+          fired++;
+          ScrollTrigger.refresh();
+        }, 200);
+      }
+
+      qsa('img[loading="lazy"]').forEach(function (img) {
+        if (img.complete) return;        // schon geladen, kein Ereignis mehr zu erwarten
+        img.addEventListener('load', schedule, { once: true });
+      });
+
+      var bentoVideo = qs('.bento-video');
+      if (bentoVideo) {
+        bentoVideo.addEventListener('loadedmetadata', schedule, { once: true });
+      }
+    }
+  })();
