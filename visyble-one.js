@@ -1564,55 +1564,52 @@
   })();
 
 
-      /* ===================================================================
+        /* ===================================================================
      99  GLOBAL — EIN REFRESH FUER ALLE
      Bei mehreren Pins auf einer Seite vermessen sich einzelne Refreshes
-     gegenseitig neu, waehrend ein Scrub schon laeuft. Ein einziger
-     initialer Refresh, nachdem alles registriert ist, PLUS ein
-     begrenzter Nachlauf fuer das, was danach noch Hoehe aendert.
+     gegenseitig neu, waehrend ein Scrub schon laeuft.
 
-     GEAENDERT: fonts.ready und load liefen vorher im "wer zuerst"-
-     Rennen gegeneinander — der erste setzte done=true, der zweite lief
-     ins Leere. Auf Staging gemessen: fonts.ready gewinnt fast immer,
-     Bilder mit loading="lazy" und das Bento-Video (Src erst per
-     IntersectionObserver in Block 30) haben zu dem Zeitpunkt oft noch
-     keine Hoehe. Jede Trigger-Position unterhalb dieser Elemente sass
-     dadurch bis zu 200px daneben — reproduzierbar zwischen Loads.
+     GEAENDERT: wartete vorher zusaetzlich auf window.load. Grund war
+     Bildhoehen, die sich nach dem Laden noch aendern koennen. Seit
+     nav-logo, service-pill und hero-frame-sizer aspect-ratio tragen,
+     steht ihre Layouthoehe sofort fest — unabhaengig davon, ob die
+     Bilddatei schon angekommen ist. Der load-Gate wartete damit auf
+     nichts mehr Notwendiges, blockierte aber real: hero-frame-video hat
+     preload="auto" (mehrere MB). Auf Mobilfunk kann das den ersten,
+     korrigierenden Refresh um Sekunden verzoegern — lange genug, dass
+     die About-Section laengst durchgescrollt ist, bevor die Pin-
+     Positionen stimmen. Genau das erklaerte "Titel nur beim
+     Zurueckscrollen sichtbar" auf Mobilfunk.
 
-     Jetzt: BEIDE Signale muessen da sein fuer den ersten Refresh.
-     Danach ein bewusst begrenzter Sicherheitsnetz-Refresh, ausgeloest
-     durch die konkret bekannten Spaetlader (lazy Bilder, Bento-Video-
-     Metadaten) — kein Dauerlistener, kein Risiko einer Refresh-
-     Schleife durch den Pin-Spacer selbst.
+     Jetzt: einziges Gate ist fonts.ready (Schriftmetriken aendern
+     tatsaechlich Texthoehen, das bleibt relevant). load bleibt als
+     zweiter, NICHT blockierender Nachlauf-Ausloeser bestehen, falls
+     doch noch etwas Unvorhergesehenes verschiebt.
      MUSS der letzte Block bleiben.
      =================================================================== */
   (function () {
     if (!GS) return;
 
-    var fontsDone = false, loadDone = false, firstDone = false;
+    var done = false, fired = 0;
+    var MAX_SAFETY_REFRESHES = 3;
+    var timer = null;
 
-    function maybeFirstRefresh() {
-      if (firstDone || !fontsDone || !loadDone) return;
-      firstDone = true;
+    function refresh() {
+      if (done) return;
+      done = true;
       ScrollTrigger.refresh();
       armSafetyNet();
     }
 
-    onFonts(function () { fontsDone = true; maybeFirstRefresh(); });
-    window.addEventListener('load', function () { loadDone = true; maybeFirstRefresh(); });
+    /* Einziges Gate fuer den ERSTEN, kritischen Refresh: Schriftarten.
+       Kein Warten auf load mehr — Layouthoehen stehen dank aspect-ratio
+       schon vorher fest. */
+    onFonts(function () { setTimeout(refresh, 60); });
 
-    /* ---------- Nachlauf ----------
-       Lazy-Bilder und das Bento-Video aendern die Dokumenthoehe erst
-       NACH dem ersten Refresh. Debounced (200ms, mehrere Spaetlader
-       kurz hintereinander loesen nur einen Refresh aus) und auf
-       maximal 3 begrenzt — mehr sollte es unter normalen Umstaenden
-       nie brauchen, und es verhindert eine Endlosschleife, falls ein
-       Refresh selbst je unerwartet ein 'load'-Event nachziehen sollte. */
+    /* Sicherheitsnetz: laeuft NACH dem ersten Refresh, blockiert nichts,
+       faengt nur noch echte Ausnahmen ab (z. B. ein Bild ohne
+       aspect-ratio, das spaeter dazukommt). Debounced, auf 3 begrenzt. */
     function armSafetyNet() {
-      var timer = null;
-      var fired = 0;
-      var MAX_SAFETY_REFRESHES = 3;
-
       function schedule() {
         if (fired >= MAX_SAFETY_REFRESHES) return;
         if (timer) clearTimeout(timer);
@@ -1623,7 +1620,7 @@
       }
 
       qsa('img[loading="lazy"]').forEach(function (img) {
-        if (img.complete) return;        // schon geladen, kein Ereignis mehr zu erwarten
+        if (img.complete) return;
         img.addEventListener('load', schedule, { once: true });
       });
 
@@ -1631,6 +1628,10 @@
       if (bentoVideo) {
         bentoVideo.addEventListener('loadedmetadata', schedule, { once: true });
       }
+
+      // load selbst loest jetzt nur noch das Sicherheitsnetz aus,
+      // nicht mehr den ersten kritischen Refresh
+      window.addEventListener('load', schedule, { once: true });
     }
   })();
 
