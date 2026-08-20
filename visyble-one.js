@@ -1008,7 +1008,7 @@
     onFonts(boot);
   })();
 
-    /* ===================================================================
+  /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL
      Drei Titel liegen uebereinander in grid-area 1/1 und kippen
      nacheinander rein. Gepinnt wird der STACK, nicht die Section — beim
@@ -1564,7 +1564,7 @@
   })();
 
 
-    /* ===================================================================
+      /* ===================================================================
      99  GLOBAL — EIN REFRESH FUER ALLE
      Bei mehreren Pins auf einer Seite vermessen sich einzelne Refreshes
      gegenseitig neu, waehrend ein Scrub schon laeuft. Ein einziger
