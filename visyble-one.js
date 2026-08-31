@@ -1143,7 +1143,21 @@
           end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
           pin: true,
           pinSpacing: true,
-          scrub: true,
+          /* GEAENDERT 31.08.: true -> 0.2. Getestet: refresh() feuert
+             nachweislich NICHT waehrend des Scrollens (Panel-Messung,
+             y blieb konstant bei 0 ueber den gesamten Testlauf) — das
+             Ruckeln in Safari UND Chrome lag also nicht an
+             invalidateOnRefresh, sondern vermutlich an der Rotation
+             selbst: rotationX laeuft durch 92 Grad auf 0, und nahe 90
+             Grad reagiert eine perspektivische 3D-Rotation extrem
+             empfindlich — gewoehnliches Scroll-Rauschen (ungleichmaessige
+             Touch-Samples, Frame-Timing) wird dort optisch stark
+             vergroessert. scrub:true glaettet nichts, jeder Tick geht
+             1:1 in rotationX. 0.2 filtert das Rauschen, bevor es die
+             Rotation erreicht. Nebeneffekt: die Animation folgt dem
+             Finger nicht mehr exakt, sondern zieht minimal nach.
+             Test, kein endgueltiger Wert — am Geraet verifizieren. */
+          scrub: 0.2,
           /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
              ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
           invalidateOnRefresh: true,
