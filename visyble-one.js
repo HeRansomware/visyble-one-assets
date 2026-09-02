@@ -149,20 +149,32 @@
      Inline-Script im Head sofort setzt. Faellt JS aus, wird die Klasse
      nie gesetzt und nichts ist unsichtbar — kein Blackout-Risiko.
 
-     GEAENDERT 02.09.: BLUR-FADE statt reinem Opacity-Fade.
-     Vorher lief die Bewegung ueber 10px mit expo.out. Die Kurve war
-     richtig, aber auf 10px ist sie praktisch unsichtbar — optisch blieb
-     ein statischer Opacity-Fade uebrig. Den Weg wieder zu verlaengern
-     waere der Rueckweg zum "Hochfahren", das bewusst raus sollte.
-     Stattdessen: leichte Unschaerfe, die scharf wird. Das liest sich als
-     Bewegung, ohne dass etwas sichtbar faehrt.
+     Apple-Stil: kurzer Weg (10px), expo.out — die Bewegung endet fast
+     unmerklich statt sichtbar auszurollen. KEIN Blur (bewusst verworfen).
 
-     BLUR-KOSTEN: jedes Element mit filter wird zu einer eigenen
-     Compositing-Ebene und muss pro Frame neu rasterisiert werden.
-     Hier sind es maximal 3 Hero-Elemente plus 2 Header-Kinder
-     gleichzeitig — unkritisch. Trotzdem dasselbe Leistungs-Gate wie in
-     Block 50, und der filter wird nach der Animation hart auf 'none'
-     gesetzt, damit die Ebene sich wirklich aufloest.
+     GEAENDERT 02.09. — DREI PUNKTE:
+
+     (1) BEIDE RICHTUNGEN. Vorher once:true — der Trigger feuerte einmal
+         und war danach tot. Jetzt toggleActions 'play none none reverse':
+         beim Zurueckscrollen laeuft die Animation rueckwaerts und beim
+         erneuten Vorwaertsscrollen wieder vor.
+         BEWUSST KEIN scrub wie in Block 50: dort HAENGT die Titel-
+         Sequenz am Scrollrad, das ist die Aussage der Section. Ein
+         Section-Header soll dagegen in eigenem Tempo durchlaufen, sobald
+         er im Bild ist — mit scrub klebte er am Finger und fuehlte sich
+         an, als haenge er fest. Gleiches Ergebnis (beide Richtungen),
+         richtigeres Mittel.
+
+     (2) CTA-BOUNCE. Die zwei Hero-Buttons ([data-fade="cta"]) laufen
+         nicht im Hero-Stagger mit, sondern bekommen einen eigenen Tween:
+         scale ueber 1 hinaus und zurueck (back.out).
+
+     (3) TRANSITION-KONFLIKT ENTSCHAERFT. Beide Buttons tragen im CSS
+         transition:all (0.22s bzw 0.8s). GSAP schreibt den scale-Wert in
+         JEDEM Frame — die CSS-Transition zieht jeden dieser Werte
+         nochmal ueber ihre Dauer nach, der Bounce wird zu Matsch.
+         Deshalb waehrend der Animation transition:none, danach wieder
+         entfernen, damit die Hover-Transition zurueckkommt.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -172,71 +184,90 @@
     if (REDUCE) return;
 
     /* ---------- Stellschrauben ---------- */
-    var SHIFT      = 14,     // Weg in px. Bewusst kurz — der Blur traegt die Bewegung
-        BLUR       = 8,      // Startunschaerfe in px
-        HERO_DUR   = 1.4,
-        HERO_STAG  = 0.09,   // etwas groesser als vorher: jetzt 3 statt 1 Element
-        HEAD_DUR   = 1.1,
-        HEAD_STAG  = 0.07;
+    var SHIFT       = 10,     // Weg in px, Apple-kurz
+        HERO_DUR    = 1.4,
+        HERO_STAG   = 0.09,
+        HEAD_DUR    = 1.1,
+        HEAD_STAG   = 0.07,
+        /* Bounce: 0.86 ist klein genug, dass das Wachsen sichtbar wird,
+           aber gross genug, dass der Button nie "aus dem Nichts" kommt. */
+        CTA_SCALE   = 0.86,
+        CTA_DUR     = 0.9,
+        CTA_STAG    = 0.12,   // Versatz zwischen den beiden Buttons
+        CTA_DELAY   = 0.55,   // laeuft NACH Titel und Subline an
+        /* Ueberschwingen. 1.6 = deutlich sichtbar, aber kein Gummiball.
+           Hoeher wirkt schnell verspielt und passt nicht zur Marke. */
+        CTA_BACK    = 1.6;
 
-    /* Blur nur, wo genug Leistung da ist. Gleiche Schwelle wie Block 50.
-       Ohne Blur bleibt der Fade funktional, nur weniger weich. */
-    var useBlur = (navigator.hardwareConcurrency || 4) >= 4;
-
-    function from() {
-      var o = { opacity: 0, y: SHIFT };
-      if (useBlur) o.filter = 'blur(' + BLUR + 'px)';
-      return o;
-    }
-
-    /* will-change UND filter nach der Animation zuruecknehmen. Bleibt der
-       filter als 'blur(0px)' stehen, bleibt auch die Compositing-Ebene
-       bestehen — 'none' loest sie endgueltig auf. */
-    function release() {
+    function releaseWillChange() {
       this.targets().forEach(function (el) {
         el.style.willChange = 'auto';
-        if (useBlur) el.style.filter = 'none';
-      });
-    }
-
-    function arm() {
-      this.targets().forEach(function (el) {
-        el.style.willChange = useBlur
-          ? 'transform, opacity, filter'
-          : 'transform, opacity';
       });
     }
 
     onFonts(function () {
-      // Hero: kein ScrollTrigger, liegt above the fold
+
+      /* ---------- Hero-Titel + Subline ----------
+         Kein ScrollTrigger: liegt above the fold, laeuft beim Laden. */
       var hero = qsa('[data-fade="hero"]');
       if (hero.length) {
-        gsap.fromTo(hero, from(), {
-          opacity: 1,
-          y: 0,
-          filter: useBlur ? 'blur(0px)' : undefined,
-          duration: HERO_DUR,
-          ease: 'expo.out',
-          stagger: HERO_STAG,
-          delay: 0.15,
-          onStart: arm,
-          onComplete: release
-        });
+        gsap.fromTo(hero,
+          { opacity: 0, y: SHIFT },
+          { opacity: 1, y: 0, duration: HERO_DUR, ease: 'expo.out',
+            stagger: HERO_STAG, delay: 0.15,
+            onComplete: releaseWillChange });
       }
 
-      // Section-Header: direkte Kinder staffeln (Label -> Titel)
+      /* ---------- Hero-CTAs: versetzter Bounce ---------- */
+      var ctas = qsa('[data-fade="cta"]');
+      if (ctas.length) {
+        gsap.fromTo(ctas,
+          { opacity: 0, scale: CTA_SCALE },
+          {
+            opacity: 1,
+            scale: 1,
+            duration: CTA_DUR,
+            /* back.out ueberschiesst ueber scale 1 hinaus und faellt
+               zurueck — genau das "kurz groesser, dann normal". */
+            ease: 'back.out(' + CTA_BACK + ')',
+            stagger: CTA_STAG,
+            delay: CTA_DELAY,
+            onStart: function () {
+              this.targets().forEach(function (el) {
+                el.style.willChange = 'transform, opacity';
+                // CSS-transition waehrend der Animation stilllegen
+                el.style.transition = 'none';
+              });
+            },
+            onComplete: function () {
+              this.targets().forEach(function (el) {
+                el.style.willChange = 'auto';
+                // Hover-Transition zurueckgeben
+                el.style.removeProperty('transition');
+                /* scale sauber aufloesen, sonst bleibt eine matrix()
+                   stehen und ein spaeterer CSS-Hover mit transform
+                   haette keinen Startwert. */
+                gsap.set(el, { clearProps: 'transform' });
+              });
+            }
+          });
+      }
+
+      /* ---------- Section-Header ----------
+         Direkte Kinder staffeln (Label -> Titel). */
       qsa('[data-fade="header"]').forEach(function (header) {
-        gsap.fromTo(header.children, from(), {
-          opacity: 1,
-          y: 0,
-          filter: useBlur ? 'blur(0px)' : undefined,
-          duration: HEAD_DUR,
-          ease: 'expo.out',
-          stagger: HEAD_STAG,
-          onStart: arm,
-          onComplete: release,
-          scrollTrigger: { trigger: header, start: 'top 92%', once: true }
-        });
+        gsap.fromTo(header.children,
+          { opacity: 0, y: SHIFT },
+          { opacity: 1, y: 0, duration: HEAD_DUR, ease: 'expo.out',
+            stagger: HEAD_STAG,
+            onComplete: releaseWillChange,
+            scrollTrigger: {
+              trigger: header,
+              start: 'top 92%',
+              /* Rueckwaerts beim Hochscrollen, vorwaerts beim erneuten
+                 Runterscrollen. Ersetzt once:true. */
+              toggleActions: 'play none none reverse'
+            } });
       });
     });
   })();
