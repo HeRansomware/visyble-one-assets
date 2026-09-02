@@ -1062,8 +1062,30 @@
   /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL
      Drei Titel liegen uebereinander in grid-area 1/1 und kippen
-     nacheinander rein. Gepinnt wird der STACK, nicht die Section — beim
-     Pinnen der Section sitzt der Titel wegen des Section-Paddings zu tief.
+     nacheinander rein.
+
+     GEAENDERT 02.09.: ZWEI WEGE statt einem, per gsap.matchMedia().
+
+       Desktop (>=992px): GSAP-Pin wie bisher. Dort gemessen sauber —
+         4400 Frames, Schnitt 16.68ms, nur 2 Frames ueber 32ms.
+
+       Mobile (<992px): CSS position:sticky statt GSAP-Pin.
+         Grund: pinType:'transform' fuehrt das Element per JS in JEDEM
+         Frame nach. Auf iOS laeuft der Touch-Scroll nativ im Compositor
+         (Lenis syncTouch:false), der Main-Thread bekommt die Positionen
+         verzoegert — der Stack hinkt dem Finger hinterher und wird beim
+         Scrollen sichtbar "hochgezogen". Zusaetzlich verschiebt die
+         ein-/ausfahrende Safari-Adressleiste den sichtbaren Ausschnitt
+         live, waehrend JS auf der alten Geometrie rechnet.
+         position:sticky haelt der Browser selbst im Compositor —
+         kein Main-Thread, kein Nachziehen, immun gegen die URL-Leiste.
+         Block 42 stapelt die Workflow-Karten auf Mobile schon so.
+
+     Der Spacer ersetzt GSAPs pin-spacer 1:1: gemessen war der 3559px
+     bei 1271px Stack-Hoehe = stackHeight * (1 + PIN_FACTOR).
+     Der Trigger sitzt auf dem SPACER, der nicht klebt — ein Trigger auf
+     dem klebenden Stack wuerde beim refresh() an der geklebten statt an
+     der Layout-Position gemessen (gleiche Begruendung wie Block 42).
      =================================================================== */
   (function () {
     if (!GS) {
@@ -1076,13 +1098,15 @@
         PIN_FACTOR = 1.8,    // Pin-Laenge als Vielfaches der Stack-Hoehe
         WORD_DUR = 0.3,      // Dauer je Wort
         WORD_STAGGER = 0.32, // MUSS groesser sein als WORD_DUR
-        BLUR = 5;
+        BLUR = 5,
+        DESKTOP_Q = '(min-width: 992px)',
+        MOBILE_Q  = '(max-width: 991px)';
 
     /* Blur nur ab Desktop UND nur bei genug Leistung: jedes Wort mit
        filter wird zu einer eigenen Compositing-Ebene, bei 30 Woertern
        sind das 30 Ebenen. Radius 5 statt 8 — die Rasterisierungskosten
        steigen quadratisch mit dem Radius. */
-    var useBlur = mm('(min-width: 992px)').matches &&
+    var useBlur = mm(DESKTOP_Q).matches &&
                   (navigator.hardwareConcurrency || 4) >= 4;
 
     /* ---------- Text in Wort-Spans zerlegen ----------
@@ -1109,11 +1133,12 @@
       return out;
     }
 
-    /* ---------- Titel-Pin ---------- */
-    function buildTitles(stack, titles) {
-      /* autoAlpha statt opacity: setzt bei 0 zusaetzlich visibility:hidden.
-         Der unsichtbare Titel ist damit aus dem Compositing raus, dadurch
-         kein z-Fighting zwischen den drei 3D-Ebenen in grid-area 1/1. */
+    /* ---------- Startzustand der Titel ----------
+       Identisch fuer beide Wege, deshalb ausgelagert.
+       autoAlpha statt opacity: setzt bei 0 zusaetzlich visibility:hidden.
+       Der unsichtbare Titel ist damit aus dem Compositing raus, dadurch
+       kein z-Fighting zwischen den drei 3D-Ebenen in grid-area 1/1. */
+    function primeTitles(titles) {
       gsap.set(titles, {
         autoAlpha: 0,
         rotationX: 92,               // negativ = von unten, positiv = von oben
@@ -1122,52 +1147,13 @@
         force3D: true
       });
       titles.forEach(function (t, i) { t.style.zIndex = String(i + 1); });
+    }
 
-      var tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: stack,                  // der Stack, NICHT die Section
-          start: 'top top',
-          /* iOS zeichnet position:fixed waehrend des Momentum-Scrollings
-             NICHT neu. ScrollTrigger pinnt per Default genau damit — der
-             gepinnte Stack blieb dadurch auf dem iPhone an einer veralteten
-             Position ausserhalb des Sichtfelds stehen und sprang erst
-             zurueck, wenn der Scroll anhielt (Antippen). Auf dem Panel war
-             das gut sichtbar: progress und autoAlpha liefen die ganze Zeit
-             korrekt, nur gezeichnet wurde nichts.
-             transform pinnt ueber translateY statt fixed — das fuehrt der
-             Compositor auch waehrend des Scrollens mit.
-             Betrifft nur diesen Trigger: Block 41 laeuft erst ab 992px,
-             Block 42 stapelt per CSS-sticky ohne Pin. */
-          pinType: 'transform',
-          // Scrollweg aus der TATSAECHLICHEN Stack-Hoehe, nicht aus innerHeight
-          end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
-          pin: true,
-          pinSpacing: true,
-          /* GEAENDERT 31.08.: true -> 0.2. Getestet: refresh() feuert
-             nachweislich NICHT waehrend des Scrollens (Panel-Messung,
-             y blieb konstant bei 0 ueber den gesamten Testlauf) — das
-             Ruckeln in Safari UND Chrome lag also nicht an
-             invalidateOnRefresh, sondern vermutlich an der Rotation
-             selbst: rotationX laeuft durch 92 Grad auf 0, und nahe 90
-             Grad reagiert eine perspektivische 3D-Rotation extrem
-             empfindlich — gewoehnliches Scroll-Rauschen (ungleichmaessige
-             Touch-Samples, Frame-Timing) wird dort optisch stark
-             vergroessert. scrub:true glaettet nichts, jeder Tick geht
-             1:1 in rotationX. 0.2 filtert das Rauschen, bevor es die
-             Rotation erreicht. Nebeneffekt: die Animation folgt dem
-             Finger nicht mehr exakt, sondern zieht minimal nach.
-             Test, kein endgueltiger Wert — am Geraet verifizieren. */
-          scrub: 0.2,
-          /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
-             ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
-          invalidateOnRefresh: true,
-          refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
-        }
-      });
-
-      /* Erst den VORHERIGEN hart wegschneiden, dann den neuen reinkippen,
-         dann Standzeit. Nie sind zwei Titel gleichzeitig sichtbar —
-         ueberlappende Schriftzuege werden auf #080808 matschig. */
+    /* ---------- Titel-Sequenz auf eine Timeline legen ----------
+       Erst den VORHERIGEN hart wegschneiden, dann den neuen reinkippen,
+       dann Standzeit. Nie sind zwei Titel gleichzeitig sichtbar —
+       ueberlappende Schriftzuege werden auf #080808 matschig. */
+    function fillTimeline(tl, titles) {
       titles.forEach(function (title, i) {
         if (i > 0) {
           tl.to(titles[i - 1], { autoAlpha: 0, duration: CUT, ease: 'none' });
@@ -1176,6 +1162,93 @@
         tl.to({}, { duration: 0.6 });    // Standzeit
       });
       tl.to({}, { duration: 0.5 });      // Nachlauf vor dem Loesen
+    }
+
+    /* ===============================================================
+       WEG A — DESKTOP: GSAP-Pin
+       =============================================================== */
+    function buildPinned(stack, titles) {
+      primeTitles(titles);
+
+      var tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: stack,                  // der Stack, NICHT die Section
+          start: 'top top',
+          // Scrollweg aus der TATSAECHLICHEN Stack-Hoehe, nicht aus innerHeight
+          end: function () { return '+=' + stack.offsetHeight * PIN_FACTOR; },
+          pin: true,
+          pinSpacing: true,
+          /* 0.2 statt true: rotationX laeuft durch 92 Grad auf 0, und nahe
+             90 Grad vergroessert eine perspektivische Rotation jedes
+             Scroll-Rauschen optisch stark. scrub:true glaettet nichts,
+             jeder Tick geht 1:1 in rotationX. */
+          scrub: 0.2,
+          /* KEIN anticipatePin: es rendert den Pin einen Frame frueher und
+             ist bei schnellem Hin- und Herscrollen selbst eine Ruckelquelle. */
+          invalidateOnRefresh: true,
+          refreshPriority: 1            // MUSS ueber dem Text-Trigger liegen
+        }
+      });
+
+      fillTimeline(tl, titles);
+    }
+
+    /* ===============================================================
+       WEG B — MOBILE: CSS-Sticky
+       =============================================================== */
+    function buildSticky(stack, titles) {
+      primeTitles(titles);
+
+      /* Spacer traegt die Scrollstrecke, der Stack klebt darin.
+         position:relative, damit er selbst kein containing block fuer
+         irgendetwas Unerwartetes wird. */
+      var spacer = document.createElement('div');
+      spacer.className = 'about-stack-spacer';
+      spacer.style.position = 'relative';
+      stack.parentNode.insertBefore(spacer, stack);
+      spacer.appendChild(stack);
+
+      /* KEIN will-change auf dem Stack: das wuerde einen containing block
+         erzeugen und sticky in WebKit aushebeln. */
+      stack.style.position = 'sticky';
+      stack.style.top = '0px';
+
+      /* Hoehe = Stack + Pin-Strecke, exakt wie GSAPs pin-spacer.
+         Muss VOR jeder Messung stehen, deshalb an refreshInit statt an
+         onRefresh: refreshInit feuert, bevor ScrollTrigger vermisst. */
+      function sizeSpacer() {
+        spacer.style.height = (stack.offsetHeight * (1 + PIN_FACTOR)) + 'px';
+      }
+      sizeSpacer();
+      ScrollTrigger.addEventListener('refreshInit', sizeSpacer);
+
+      var tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: spacer,          // der Spacer klebt NICHT, der Stack schon
+          /* Deckt sich exakt mit der Sticky-Strecke: top top ist der
+             Moment, in dem der Stack anfaengt zu kleben, bottom bottom
+             der, in dem der Spacer ihn wieder freigibt. */
+          start: 'top top',
+          end: 'bottom bottom',
+          scrub: 0.2,
+          invalidateOnRefresh: true,
+          refreshPriority: 1
+        }
+      });
+
+      fillTimeline(tl, titles);
+
+      /* Aufraeumen beim Breakpoint-Wechsel. matchMedia ruft das selbst
+         auf und revertet zusaetzlich alle hier erzeugten Tweens. */
+      return function cleanup() {
+        ScrollTrigger.removeEventListener('refreshInit', sizeSpacer);
+        stack.style.removeProperty('position');
+        stack.style.removeProperty('top');
+        if (spacer.parentNode) {
+          spacer.parentNode.insertBefore(stack, spacer);
+          spacer.parentNode.removeChild(spacer);
+        }
+      };
     }
 
     /* ---------- Wort-Reveal ---------- */
@@ -1235,8 +1308,17 @@
 
       /* Reihenfolge ist kritisch: Der Pin verschiebt alle Positionen
          darunter. Ein Trigger, der vorher erstellt wird, rechnet ohne
-         Pin-Versatz und feuert zu frueh. */
-      if (stack && titles.length) buildTitles(stack, titles);
+         Pin-Versatz und feuert zu frueh. Deshalb Titel VOR Woertern —
+         refreshPriority 1 vs 0 sichert die Messreihenfolge zusaetzlich ab. */
+      if (stack && titles.length) {
+        /* gsap.matchMedia statt onBreakpoint: revertet beim Wechsel
+           automatisch alle im Callback erzeugten Tweens und Trigger.
+           Von Hand waere das ein kill()/clearProps-Block je Weg. */
+        var media = gsap.matchMedia();
+        media.add(DESKTOP_Q, function () { buildPinned(stack, titles); });
+        media.add(MOBILE_Q,  function () { return buildSticky(stack, titles); });
+      }
+
       if (words.length) buildWords(para, words);
     }
 
@@ -1245,7 +1327,6 @@
     onFonts(start);
     setTimeout(start, 3000);     // Sicherheitsnetz, falls fonts.ready haengt
   })();
-
   /* ===================================================================
      60  PRICING — ELECTRIC BORDER
      Vanilla-Port der React-Bits-Canvas-Logik. Bewusst KEIN SVG-Filter:
