@@ -149,12 +149,20 @@
      Inline-Script im Head sofort setzt. Faellt JS aus, wird die Klasse
      nie gesetzt und nichts ist unsichtbar — kein Blackout-Risiko.
 
-     GEAENDERT: Apple-Stil statt "Hochfahren". Kuerzerer Weg (10px statt
-     28px), expo.out statt power3.out — die Bewegung endet fast unmerklich
-     statt sichtbar auszurollen. Trigger frueher (top 92%), damit nichts
-     mehr "aufploppt", wenn es laengst im Bild ist. will-change wird nach
-     der Animation zurueckgenommen: vorher blieben Hero und alle
-     Section-Header dauerhaft als eigene Compositing-Ebene bestehen.
+     GEAENDERT 02.09.: BLUR-FADE statt reinem Opacity-Fade.
+     Vorher lief die Bewegung ueber 10px mit expo.out. Die Kurve war
+     richtig, aber auf 10px ist sie praktisch unsichtbar — optisch blieb
+     ein statischer Opacity-Fade uebrig. Den Weg wieder zu verlaengern
+     waere der Rueckweg zum "Hochfahren", das bewusst raus sollte.
+     Stattdessen: leichte Unschaerfe, die scharf wird. Das liest sich als
+     Bewegung, ohne dass etwas sichtbar faehrt.
+
+     BLUR-KOSTEN: jedes Element mit filter wird zu einer eigenen
+     Compositing-Ebene und muss pro Frame neu rasterisiert werden.
+     Hier sind es maximal 3 Hero-Elemente plus 2 Header-Kinder
+     gleichzeitig — unkritisch. Trotzdem dasselbe Leistungs-Gate wie in
+     Block 50, und der filter wird nach der Animation hart auf 'none'
+     gesetzt, damit die Ebene sich wirklich aufloest.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -163,9 +171,39 @@
     }
     if (REDUCE) return;
 
-    function releaseWillChange() {
+    /* ---------- Stellschrauben ---------- */
+    var SHIFT      = 14,     // Weg in px. Bewusst kurz — der Blur traegt die Bewegung
+        BLUR       = 8,      // Startunschaerfe in px
+        HERO_DUR   = 1.4,
+        HERO_STAG  = 0.09,   // etwas groesser als vorher: jetzt 3 statt 1 Element
+        HEAD_DUR   = 1.1,
+        HEAD_STAG  = 0.07;
+
+    /* Blur nur, wo genug Leistung da ist. Gleiche Schwelle wie Block 50.
+       Ohne Blur bleibt der Fade funktional, nur weniger weich. */
+    var useBlur = (navigator.hardwareConcurrency || 4) >= 4;
+
+    function from() {
+      var o = { opacity: 0, y: SHIFT };
+      if (useBlur) o.filter = 'blur(' + BLUR + 'px)';
+      return o;
+    }
+
+    /* will-change UND filter nach der Animation zuruecknehmen. Bleibt der
+       filter als 'blur(0px)' stehen, bleibt auch die Compositing-Ebene
+       bestehen — 'none' loest sie endgueltig auf. */
+    function release() {
       this.targets().forEach(function (el) {
         el.style.willChange = 'auto';
+        if (useBlur) el.style.filter = 'none';
+      });
+    }
+
+    function arm() {
+      this.targets().forEach(function (el) {
+        el.style.willChange = useBlur
+          ? 'transform, opacity, filter'
+          : 'transform, opacity';
       });
     }
 
@@ -173,19 +211,32 @@
       // Hero: kein ScrollTrigger, liegt above the fold
       var hero = qsa('[data-fade="hero"]');
       if (hero.length) {
-        gsap.fromTo(hero,
-          { opacity: 0, y: 10 },
-          { opacity: 1, y: 0, duration: 1.4, ease: 'expo.out',
-            stagger: 0.07, delay: 0.15, onComplete: releaseWillChange });
+        gsap.fromTo(hero, from(), {
+          opacity: 1,
+          y: 0,
+          filter: useBlur ? 'blur(0px)' : undefined,
+          duration: HERO_DUR,
+          ease: 'expo.out',
+          stagger: HERO_STAG,
+          delay: 0.15,
+          onStart: arm,
+          onComplete: release
+        });
       }
 
       // Section-Header: direkte Kinder staffeln (Label -> Titel)
       qsa('[data-fade="header"]').forEach(function (header) {
-        gsap.fromTo(header.children,
-          { opacity: 0, y: 10 },
-          { opacity: 1, y: 0, duration: 1.1, ease: 'expo.out', stagger: 0.06,
-            onComplete: releaseWillChange,
-            scrollTrigger: { trigger: header, start: 'top 92%', once: true } });
+        gsap.fromTo(header.children, from(), {
+          opacity: 1,
+          y: 0,
+          filter: useBlur ? 'blur(0px)' : undefined,
+          duration: HEAD_DUR,
+          ease: 'expo.out',
+          stagger: HEAD_STAG,
+          onStart: arm,
+          onComplete: release,
+          scrollTrigger: { trigger: header, start: 'top 92%', once: true }
+        });
       });
     });
   })();
