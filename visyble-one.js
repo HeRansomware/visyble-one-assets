@@ -173,8 +173,22 @@
          transition:all (0.22s bzw 0.8s). GSAP schreibt den scale-Wert in
          JEDEM Frame — die CSS-Transition zieht jeden dieser Werte
          nochmal ueber ihre Dauer nach, der Bounce wird zu Matsch.
-         Deshalb waehrend der Animation transition:none, danach wieder
-         entfernen, damit die Hover-Transition zurueckkommt.
+
+     GEAENDERT 03.09. — ZEITPUNKT DES STILLLEGENS:
+     transition:none stand in onStart. onStart feuert aber erst NACH
+     CTA_DELAY (0.55s) — der Startzustand {opacity:0, scale:CTA_SCALE}
+     wird von GSAPs immediateRender jedoch sofort beim Erstellen des
+     Tweens geschrieben und lief damit noch voll durch die
+     CSS-Transition. Jetzt wird transition VOR dem fromTo stillgelegt.
+
+     ZWEITE HAELFTE DES FIXES LIEGT IM PAGE-HEAD-CSS, nicht hier:
+     dort fehlte [data-fade="cta"] im opacity:0-Startzustand komplett.
+     Die Buttons waren dadurch ab dem ersten Paint sichtbar, GSAP hat
+     sie erst nach fonts.ready auf 0 gezogen. Ohne diese CSS-Zeile
+     bringt die Aenderung hier nichts. Gleiches gilt fuer den
+     prefers-reduced-motion-Block: dieser Block steigt bei REDUCE
+     sofort aus, "cta" muss dort in der opacity:1-!important-Regel
+     stehen, sonst bleiben beide Buttons dauerhaft unsichtbar.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -221,6 +235,15 @@
       /* ---------- Hero-CTAs: versetzter Bounce ---------- */
       var ctas = qsa('[data-fade="cta"]');
       if (ctas.length) {
+
+        /* VOR dem Tween, nicht in onStart. immediateRender schreibt den
+           Startzustand sofort — jede noch aktive CSS-Transition wuerde
+           ihn ueber ihre eigene Dauer nachziehen. */
+        ctas.forEach(function (el) {
+          el.style.willChange = 'transform, opacity';
+          el.style.transition = 'none';
+        });
+
         gsap.fromTo(ctas,
           { opacity: 0, scale: CTA_SCALE },
           {
@@ -232,13 +255,6 @@
             ease: 'back.out(' + CTA_BACK + ')',
             stagger: CTA_STAG,
             delay: CTA_DELAY,
-            onStart: function () {
-              this.targets().forEach(function (el) {
-                el.style.willChange = 'transform, opacity';
-                // CSS-transition waehrend der Animation stilllegen
-                el.style.transition = 'none';
-              });
-            },
             onComplete: function () {
               this.targets().forEach(function (el) {
                 el.style.willChange = 'auto';
