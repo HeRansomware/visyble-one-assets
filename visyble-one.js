@@ -47,6 +47,22 @@
      50  invalidateOnRefresh steht weiterhin auf beiden Triggern.
          Siehe Notiz dort — Entfernen aendert Verhalten und braucht
          eine Messung am Geraet, keinen Blindschuss.
+   ---------------------------------------------------------------------
+   STAND 02.09. — BLOCK 50 AUF ZWEI WEGE AUFGETEILT
+     Desktop (>=992px) behaelt den GSAP-Pin, Mobile (<992px) laeuft ueber
+     CSS position:sticky in einem per JS erzeugten Spacer. Umgesetzt mit
+     gsap.matchMedia(), das beim Breakpoint-Wechsel alle im Callback
+     erzeugten Tweens und Trigger selbst revertet.
+     Von Inan am Geraet bestaetigt: laeuft fluessig.
+
+   STAND 03.09. — BLOCK 42, MESSFEHLER BEI GEKLEBTEN KARTEN
+     measure() las die Kartenpositionen per offsetTop. Chrome liefert bei
+     position:sticky aber die GEKLEBTE Position, nicht die des Layouts.
+     Fiel ein refresh() in einen Moment, in dem der Stapel schon klebte,
+     waren alle marks falsch — reproduzierbar durch Reload mitten in der
+     Workflow-Section. Neu: measureCardTops() setzt die Karten fuer die
+     Messung kurz auf position:static.
+     Ausfuehrliche Begruendung im Blockkommentar von 42.
    ===================================================================== */
 (function () {
   'use strict';
@@ -1030,8 +1046,28 @@
      EIN Trigger auf dem TRACK, nicht je einer pro Karte. ScrollTrigger
      vermisst seine Trigger beim refresh() — klebt eine Karte gerade,
      wird sie an der geklebten statt an der Layout-Position gemessen und
-     der Effekt springt. Der Track klebt nicht, und offsetTop bleibt bei
-     sticky unveraendert.
+     der Effekt springt. Der Track klebt nicht.
+
+     KORRIGIERT 03.09.: Die Annahme "offsetTop bleibt bei sticky
+     unveraendert" ist FALSCH. Chrome liefert bei geklebten Elementen die
+     VERSCHOBENE Position. Nachgemessen bei 390px Viewport:
+
+       Layout (Seitenanfang):  [0,   263, 526, 819, 1112]
+       geklebt (y=2100):       [642, 654, 666, 819, 1112]
+
+     Die ersten drei Werte sind die Klebepositionen, nicht das Layout —
+     der 12px-Abstand zwischen ihnen ist exakt STEP. Laeuft measure()
+     in diesem Moment, sind alle marks um bis zu 642px daneben und der
+     ganze Stapel rechnet falsch.
+
+     Das passiert nicht theoretisch: Block 99 refresht nach 'load', und
+     der Browser stellt beim Reload die alte Scrollposition wieder her.
+     Wer also im Workflow-Bereich F5 drueckt, bekommt den kaputten Stapel.
+     Dasselbe bei Rotation und bei jedem Resize in diesem Abschnitt.
+
+     Loesung: measureCardTops() nimmt die Karten fuer die Dauer der
+     Messung aus dem Sticky-Zustand. Kostet EINEN erzwungenen Reflow,
+     aber measure() laeuft nur beim Refresh, nie pro Frame.
      =================================================================== */
   (function () {
     if (!GS || !WF || WF.cards.length < 2) return;
@@ -1056,6 +1092,31 @@
     var master = null, marks = [], switchMarks = [];
     var active = -1, prevScale = [], prevFill = -1;
 
+    /* ---------- Layout-Positionen der Karten ----------
+       offsetTop allein ist unbrauchbar, sobald eine Karte klebt (siehe
+       Blockkommentar). position:static setzt sie fuer einen Moment in
+       den normalen Fluss zurueck, das Auslesen erzwingt den Reflow,
+       danach wird der Inline-Wert wieder entfernt und die CSS-Regel
+       (position:sticky) greift erneut.
+
+       Das Zuruecksetzen laeuft ueber die vorher gelesenen Inline-Werte,
+       nicht ueber ein pauschales removeProperty: haette eine Karte je
+       einen Inline-position-Wert bekommen, wuerde der sonst still
+       verschwinden. */
+    function measureCardTops() {
+      var prev = cards.map(function (c) { return c.style.position; });
+      cards.forEach(function (c) { c.style.position = 'static'; });
+
+      // Ein Durchgang, ein Reflow — nicht abwechselnd schreiben und lesen
+      var tops = cards.map(function (c) { return c.offsetTop; });
+
+      cards.forEach(function (c, i) {
+        if (prev[i]) c.style.position = prev[i];
+        else c.style.removeProperty('position');
+      });
+      return tops;
+    }
+
     /* ---------- Messen ----------
        Einmal pro Refresh, nie pro Frame. */
     function measure() {
@@ -1072,8 +1133,9 @@
       var top = track.getBoundingClientRect().top +
                 (window.scrollY || window.pageYOffset);
 
-      marks = cards.map(function (c, i) {
-        return top + c.offsetTop - (base + i * STEP);
+      var tops = measureCardTops();
+      marks = tops.map(function (t, i) {
+        return top + t - (base + i * STEP);
       });
       switchMarks = marks.map(function (m, i) {
         return i === 0 ? m : m - HANDOVER * (m - marks[i - 1]);
