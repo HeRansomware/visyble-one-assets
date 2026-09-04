@@ -55,6 +55,14 @@
      erzeugten Tweens und Trigger selbst revertet.
      Von Inan am Geraet bestaetigt: laeuft fluessig.
 
+   STAND 04.09. — BLOCK 42, KLEBEPOSITION DES ASIDE
+     Der Workflow-Titel stand als einzige Section 108px ueber ihrem Inhalt
+     statt 48px. Ursache war der Navbar-Puffer als padding-top auf dem
+     .workflow-aside: der wirkt immer, nicht nur im geklebten Zustand.
+     Im CSS uebernimmt das jetzt der Sticky-Offset (top:var(--nav-clear)).
+     measure() rechnet den Offset in --wf-stick mit ein, sonst laege die
+     erste Karte hinter dem Aside. CSS und JS gehoeren zusammen.
+
    STAND 03.09. — BLOCK 42, MESSFEHLER BEI GEKLEBTEN KARTEN
      measure() las die Kartenpositionen per offsetTop. Chrome liefert bei
      position:sticky aber die GEKLEBTE Position, nicht die des Layouts.
@@ -1127,7 +1135,23 @@
       var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 56) + NAV_GAP);
       document.documentElement.style.setProperty('--nav-clear', navClear + 'px');
 
-      var base = (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
+      /* Klebeposition des Aside MITRECHNEN.
+         Der Aside klebt seit 04.09. nicht mehr bei top:0, sondern bei
+         top:var(--nav-clear) — die Navbar-Freihaltung laeuft jetzt ueber
+         den Sticky-Offset statt ueber ein padding-top, damit der
+         Titel-Abstand im Ruhezustand dem der anderen Sections entspricht.
+
+         Ohne diesen Summand klebt die erste Karte auf Aside-Hoehe plus
+         SLOT_OFFSET, also 92px zu weit oben: gemessen lag sie 52px HINTER
+         dem Aside statt 40px darunter.
+         Bei top:0 (Desktop-Fallback, alter Stand) ist asideTop 0 — die
+         Formel bleibt dort unveraendert. */
+      var asideTop = 0;
+      if (WF.aside) {
+        asideTop = parseFloat(window.getComputedStyle(WF.aside).top) || 0;
+      }
+
+      var base = asideTop + (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
       track.style.setProperty('--wf-stick', base + 'px');
 
       var top = track.getBoundingClientRect().top +
