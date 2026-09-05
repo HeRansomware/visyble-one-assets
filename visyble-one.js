@@ -1737,7 +1737,7 @@
   })();
    
 
-  /* ===================================================================
+    /* ===================================================================
      70  FAQ — HOVER- UND KLICK-LOGIK
      Horizontales Akkordeon. Auf Zeigergeraeten oeffnet Hover, auf Touch
      der Tap.
@@ -1756,7 +1756,15 @@
         hat nicht angesagt, dass sich beim Fokus etwas oeffnet.
      4. Enter und Leertaste aktivieren. Mit role="button" wird das
         erwartet, ein Div liefert es nicht von selbst.
-     =================================================================== */
+     5. NEU 05.09.: --faq-label-x. Das Label sitzt per Custom-Code
+        absolut in der Card und zentriert sich ueber diesen Fixwert
+        (siehe Head-Code-Kommentar dort fuer die Begruendung). Der Wert
+        ist die HALBE Breite einer Card, die gerade NICHT offen ist.
+        Eine einmalige Messung pro Resize reicht — die Summe aller
+        flex-grow im Wrapper ist immer 14 (eine offene Card mit 7 +
+        sieben geschlossene mit je 1), WELCHE Card offen ist aendert
+        daran nichts. Die Breite einer geschlossenen Card bleibt also
+        stabil, unabhaengig vom Zustand ihrer Nachbarn. */
   (function () {
     var wrapper = qs('.faq-wrapper');
     var cards = qsa('.faq-card');
@@ -1768,6 +1776,32 @@
     function hasPointer() { return POINTER.matches; }
 
     var defaultCard = qs('.faq-card.is-open') || cards[0];
+
+    /* ---------- Label-X messen ----------
+       Nur ab Desktop relevant (Tablet/Mobile setzt --faq-label-x nicht
+       ein, siehe Media Query im Head-Code) — schadet dort aber nicht,
+       der Wert wird schlicht nicht konsumiert. */
+    function measureLabelX() {
+      var closed = null;
+      for (var i = 0; i < cards.length; i++) {
+        if (!cards[i].classList.contains('is-open')) { closed = cards[i]; break; }
+      }
+      if (!closed) closed = cards[0];
+      var w = closed.offsetWidth;
+      if (w) {
+        document.documentElement.style.setProperty(
+          '--faq-label-x', Math.round(w / 2) + 'px');
+      }
+    }
+
+    var resizeTimer = null;
+    function scheduleMeasure() {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(measureLabelX, 120);
+    }
+
+    onFonts(measureLabelX);
+    window.addEventListener('resize', scheduleMeasure);
 
     function openOnly(card) {
       cards.forEach(function (c) {
