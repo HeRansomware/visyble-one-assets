@@ -47,30 +47,6 @@
      50  invalidateOnRefresh steht weiterhin auf beiden Triggern.
          Siehe Notiz dort — Entfernen aendert Verhalten und braucht
          eine Messung am Geraet, keinen Blindschuss.
-   ---------------------------------------------------------------------
-   STAND 02.09. — BLOCK 50 AUF ZWEI WEGE AUFGETEILT
-     Desktop (>=992px) behaelt den GSAP-Pin, Mobile (<992px) laeuft ueber
-     CSS position:sticky in einem per JS erzeugten Spacer. Umgesetzt mit
-     gsap.matchMedia(), das beim Breakpoint-Wechsel alle im Callback
-     erzeugten Tweens und Trigger selbst revertet.
-     Von Inan am Geraet bestaetigt: laeuft fluessig.
-
-   STAND 04.09. — BLOCK 42, KLEBEPOSITION DES ASIDE
-     Der Workflow-Titel stand als einzige Section 108px ueber ihrem Inhalt
-     statt 48px. Ursache war der Navbar-Puffer als padding-top auf dem
-     .workflow-aside: der wirkt immer, nicht nur im geklebten Zustand.
-     Im CSS uebernimmt das jetzt der Sticky-Offset (top:var(--nav-clear)).
-     measure() rechnet den Offset in --wf-stick mit ein, sonst laege die
-     erste Karte hinter dem Aside. CSS und JS gehoeren zusammen.
-
-   STAND 03.09. — BLOCK 42, MESSFEHLER BEI GEKLEBTEN KARTEN
-     measure() las die Kartenpositionen per offsetTop. Chrome liefert bei
-     position:sticky aber die GEKLEBTE Position, nicht die des Layouts.
-     Fiel ein refresh() in einen Moment, in dem der Stapel schon klebte,
-     waren alle marks falsch — reproduzierbar durch Reload mitten in der
-     Workflow-Section. Neu: measureCardTops() setzt die Karten fuer die
-     Messung kurz auf position:static.
-     Ausfuehrliche Begruendung im Blockkommentar von 42.
    ===================================================================== */
 (function () {
   'use strict';
@@ -173,46 +149,12 @@
      Inline-Script im Head sofort setzt. Faellt JS aus, wird die Klasse
      nie gesetzt und nichts ist unsichtbar — kein Blackout-Risiko.
 
-     Apple-Stil: kurzer Weg (10px), expo.out — die Bewegung endet fast
-     unmerklich statt sichtbar auszurollen. KEIN Blur (bewusst verworfen).
-
-     GEAENDERT 02.09. — DREI PUNKTE:
-
-     (1) BEIDE RICHTUNGEN. Vorher once:true — der Trigger feuerte einmal
-         und war danach tot. Jetzt toggleActions 'play none none reverse':
-         beim Zurueckscrollen laeuft die Animation rueckwaerts und beim
-         erneuten Vorwaertsscrollen wieder vor.
-         BEWUSST KEIN scrub wie in Block 50: dort HAENGT die Titel-
-         Sequenz am Scrollrad, das ist die Aussage der Section. Ein
-         Section-Header soll dagegen in eigenem Tempo durchlaufen, sobald
-         er im Bild ist — mit scrub klebte er am Finger und fuehlte sich
-         an, als haenge er fest. Gleiches Ergebnis (beide Richtungen),
-         richtigeres Mittel.
-
-     (2) CTA-BOUNCE. Die zwei Hero-Buttons ([data-fade="cta"]) laufen
-         nicht im Hero-Stagger mit, sondern bekommen einen eigenen Tween:
-         scale ueber 1 hinaus und zurueck (back.out).
-
-     (3) TRANSITION-KONFLIKT ENTSCHAERFT. Beide Buttons tragen im CSS
-         transition:all (0.22s bzw 0.8s). GSAP schreibt den scale-Wert in
-         JEDEM Frame — die CSS-Transition zieht jeden dieser Werte
-         nochmal ueber ihre Dauer nach, der Bounce wird zu Matsch.
-
-     GEAENDERT 03.09. — ZEITPUNKT DES STILLLEGENS:
-     transition:none stand in onStart. onStart feuert aber erst NACH
-     CTA_DELAY (0.55s) — der Startzustand {opacity:0, scale:CTA_SCALE}
-     wird von GSAPs immediateRender jedoch sofort beim Erstellen des
-     Tweens geschrieben und lief damit noch voll durch die
-     CSS-Transition. Jetzt wird transition VOR dem fromTo stillgelegt.
-
-     ZWEITE HAELFTE DES FIXES LIEGT IM PAGE-HEAD-CSS, nicht hier:
-     dort fehlte [data-fade="cta"] im opacity:0-Startzustand komplett.
-     Die Buttons waren dadurch ab dem ersten Paint sichtbar, GSAP hat
-     sie erst nach fonts.ready auf 0 gezogen. Ohne diese CSS-Zeile
-     bringt die Aenderung hier nichts. Gleiches gilt fuer den
-     prefers-reduced-motion-Block: dieser Block steigt bei REDUCE
-     sofort aus, "cta" muss dort in der opacity:1-!important-Regel
-     stehen, sonst bleiben beide Buttons dauerhaft unsichtbar.
+     GEAENDERT: Apple-Stil statt "Hochfahren". Kuerzerer Weg (10px statt
+     28px), expo.out statt power3.out — die Bewegung endet fast unmerklich
+     statt sichtbar auszurollen. Trigger frueher (top 92%), damit nichts
+     mehr "aufploppt", wenn es laengst im Bild ist. will-change wird nach
+     der Animation zurueckgenommen: vorher blieben Hero und alle
+     Section-Header dauerhaft als eigene Compositing-Ebene bestehen.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -221,22 +163,6 @@
     }
     if (REDUCE) return;
 
-    /* ---------- Stellschrauben ---------- */
-    var SHIFT       = 10,     // Weg in px, Apple-kurz
-        HERO_DUR    = 1.4,
-        HERO_STAG   = 0.09,
-        HEAD_DUR    = 1.1,
-        HEAD_STAG   = 0.07,
-        /* Bounce: 0.86 ist klein genug, dass das Wachsen sichtbar wird,
-           aber gross genug, dass der Button nie "aus dem Nichts" kommt. */
-        CTA_SCALE   = 0.86,
-        CTA_DUR     = 0.9,
-        CTA_STAG    = 0.12,   // Versatz zwischen den beiden Buttons
-        CTA_DELAY   = 0.55,   // laeuft NACH Titel und Subline an
-        /* Ueberschwingen. 1.6 = deutlich sichtbar, aber kein Gummiball.
-           Hoeher wirkt schnell verspielt und passt nicht zur Marke. */
-        CTA_BACK    = 1.6;
-
     function releaseWillChange() {
       this.targets().forEach(function (el) {
         el.style.willChange = 'auto';
@@ -244,70 +170,22 @@
     }
 
     onFonts(function () {
-
-      /* ---------- Hero-Titel + Subline ----------
-         Kein ScrollTrigger: liegt above the fold, laeuft beim Laden. */
+      // Hero: kein ScrollTrigger, liegt above the fold
       var hero = qsa('[data-fade="hero"]');
       if (hero.length) {
         gsap.fromTo(hero,
-          { opacity: 0, y: SHIFT },
-          { opacity: 1, y: 0, duration: HERO_DUR, ease: 'expo.out',
-            stagger: HERO_STAG, delay: 0.15,
-            onComplete: releaseWillChange });
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 1.4, ease: 'expo.out',
+            stagger: 0.07, delay: 0.15, onComplete: releaseWillChange });
       }
 
-      /* ---------- Hero-CTAs: versetzter Bounce ---------- */
-      var ctas = qsa('[data-fade="cta"]');
-      if (ctas.length) {
-
-        /* VOR dem Tween, nicht in onStart. immediateRender schreibt den
-           Startzustand sofort — jede noch aktive CSS-Transition wuerde
-           ihn ueber ihre eigene Dauer nachziehen. */
-        ctas.forEach(function (el) {
-          el.style.willChange = 'transform, opacity';
-          el.style.transition = 'none';
-        });
-
-        gsap.fromTo(ctas,
-          { opacity: 0, scale: CTA_SCALE },
-          {
-            opacity: 1,
-            scale: 1,
-            duration: CTA_DUR,
-            /* back.out ueberschiesst ueber scale 1 hinaus und faellt
-               zurueck — genau das "kurz groesser, dann normal". */
-            ease: 'back.out(' + CTA_BACK + ')',
-            stagger: CTA_STAG,
-            delay: CTA_DELAY,
-            onComplete: function () {
-              this.targets().forEach(function (el) {
-                el.style.willChange = 'auto';
-                // Hover-Transition zurueckgeben
-                el.style.removeProperty('transition');
-                /* scale sauber aufloesen, sonst bleibt eine matrix()
-                   stehen und ein spaeterer CSS-Hover mit transform
-                   haette keinen Startwert. */
-                gsap.set(el, { clearProps: 'transform' });
-              });
-            }
-          });
-      }
-
-      /* ---------- Section-Header ----------
-         Direkte Kinder staffeln (Label -> Titel). */
+      // Section-Header: direkte Kinder staffeln (Label -> Titel)
       qsa('[data-fade="header"]').forEach(function (header) {
         gsap.fromTo(header.children,
-          { opacity: 0, y: SHIFT },
-          { opacity: 1, y: 0, duration: HEAD_DUR, ease: 'expo.out',
-            stagger: HEAD_STAG,
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 1.1, ease: 'expo.out', stagger: 0.06,
             onComplete: releaseWillChange,
-            scrollTrigger: {
-              trigger: header,
-              start: 'top 92%',
-              /* Rueckwaerts beim Hochscrollen, vorwaerts beim erneuten
-                 Runterscrollen. Ersetzt once:true. */
-              toggleActions: 'play none none reverse'
-            } });
+            scrollTrigger: { trigger: header, start: 'top 92%', once: true } });
       });
     });
   })();
@@ -1046,102 +924,78 @@
     onFonts(boot);
   })();
 
- /* ===================================================================
+  /* ===================================================================
      42  WORKFLOW — SCROLL STACK (AB TABLET)
-     GEAENDERT: kein position:sticky mehr, weder auf Aside noch auf
-     Karten. Grund: beide klebten in getrennten Containern mit
-     unterschiedlicher Hoehe -> unterschiedliche Loese-Zeitpunkte, eine
-     Karte konnte sich loesen waehrend die Aside noch klebte. Jetzt
-     schreibt JS die Position per transform: translate3d, fuer Aside UND
-     Karten nach DERSELBEN Formel mit EINEM gemeinsamen Loese-Punkt
-     (SHARED_PIN_END). Kann sich nur noch alles zusammen loesen.
-     Prinzip: reactbits.dev/components/scroll-stack (transform-Pin statt
-     sticky), angepasst an bestehenden globalen Scroll/ScrollTrigger.
-     Aktiv-Logik und Scale unveraendert aus der Vorversion.
+     Das Stapeln macht CSS ueber position:sticky. Hier laeuft nur, was
+     sticky nicht kann: Skalierung, aktive Karte, Fortschrittslinie.
+
+     EIN Trigger auf dem TRACK, nicht je einer pro Karte. ScrollTrigger
+     vermisst seine Trigger beim refresh() — klebt eine Karte gerade,
+     wird sie an der geklebten statt an der Layout-Position gemessen und
+     der Effekt springt. Der Track klebt nicht, und offsetTop bleibt bei
+     sticky unveraendert.
      =================================================================== */
   (function () {
     if (!GS || !WF || WF.cards.length < 2) return;
 
-    var track = WF.track, cards = WF.cards, fill = WF.fill, aside = WF.aside;
+    var track = WF.track, cards = WF.cards, fill = WF.fill;
 
     /* ---------- Stellschrauben ---------- */
-    var MIN_SCALE = 0.93,
-        STEP = 12,
+    var MIN_SCALE = 0.93,  // Endgroesse einer verdeckten Karte
+        STEP = 12,         // sichtbare Kante je Karte, MUSS zum CSS passen
+        /* Abstand des Stapels zur Schlitzkante. Der Aside-Schatten reicht
+           rund 22px nach unten. Klebt der Stapel innerhalb dieser
+           Reichweite, liegt der Schatten DAUERHAFT auf Karte 1 und liest
+           sich nicht als Durchfahrt. Bei 40px faellt er ins Leere. */
         SLOT_OFFSET = 40,
+        /* Anteil der Strecke, um den der Wechsel der aktiven Karte
+           vorgezogen wird. 0 = erst wenn die neue Karte klebt, dann ist
+           die alte aber schon groesstenteils verdeckt. */
         HANDOVER = 0.45,
-        NAV_GAP = 16,
-        DWELL_VH = 0.3;   // Anteil Viewport-Hoehe, den die letzte Karte nach
-                          // Aktivierung steht, bevor alles gemeinsam loest.
+        // Sichtbarer Abstand zwischen Navbar-Unterkante und Aside-Inhalt
+        NAV_GAP = 16;
 
-    var master = null;
-    var cardTop = [], cardScreenTop = [], cardPinStart = [];
-    var asidePinStart = 0, asideScreenTop = 0;
-    var marks = [], switchMarks = [], sharedPinEnd = 0;
-    var active = -1, prevScale = [], prevCardY = [], prevAsideY = null, prevFill = -1;
+    var master = null, marks = [], switchMarks = [];
+    var active = -1, prevScale = [], prevFill = -1;
 
     /* ---------- Messen ----------
-       Aside und Karten sind normale, nicht positionierte Elemente —
-       offsetTop ist immer die echte Layout-Position. Kein
-       Reset-auf-static-Trick mehr noetig. */
+       Einmal pro Refresh, nie pro Frame. */
     function measure() {
+      // Navbar ist position:fixed, Hoehe unterscheidet sich pro Breakpoint
+      // (Padding 14/12/10px). Muss VOR der Aside-Messung laufen, sonst
+      // rechnet padding-top noch mit dem alten/fehlenden Wert.
       var navEl = qs('.navbar-logo-left');
       var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 56) + NAV_GAP);
       document.documentElement.style.setProperty('--nav-clear', navClear + 'px');
 
-      var pageTop = window.scrollY || window.pageYOffset;
+      var base = (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
+      track.style.setProperty('--wf-stick', base + 'px');
 
-      var asideTop0 = aside.getBoundingClientRect().top + pageTop;
-      asideScreenTop = navClear;
-      asidePinStart = asideTop0 - asideScreenTop;
+      var top = track.getBoundingClientRect().top +
+                (window.scrollY || window.pageYOffset);
 
-      var asideH = aside.offsetHeight;
-
-      cardTop = cards.map(function (c) {
-        return c.getBoundingClientRect().top + pageTop;
+      marks = cards.map(function (c, i) {
+        return top + c.offsetTop - (base + i * STEP);
       });
-      cardScreenTop = cards.map(function (c, i) {
-        return navClear + asideH + SLOT_OFFSET + i * STEP;
-      });
-      cardPinStart = cardTop.map(function (t, i) {
-        return t - cardScreenTop[i];
-      });
-
-      marks = cardPinStart.slice();
       switchMarks = marks.map(function (m, i) {
         return i === 0 ? m : m - HANDOVER * (m - marks[i - 1]);
       });
 
-      var vh = window.innerHeight || 800;
-      sharedPinEnd = cardPinStart[cardPinStart.length - 1] + DWELL_VH * vh;
-
       prevScale = cards.map(function () { return -1; });
-      prevCardY = cards.map(function () { return null; });
-      prevAsideY = null;
       prevFill = -1;
-    }
-
-    /* ---------- Eine Position nach der gemeinsamen Formel ---------- */
-    function pinY(y, pinStart) {
-      var v;
-      if (y <= pinStart) v = 0;
-      else if (y <= sharedPinEnd) v = y - pinStart;
-      else v = sharedPinEnd - pinStart;
-      return Math.round(v * 100) / 100;
     }
 
     /* ---------- Zeichnen ---------- */
     function paint(y) {
       var idx = 0;
 
-      var asideY = pinY(y, asidePinStart);
-      if (prevAsideY !== asideY) {
-        aside.style.transform = 'translate3d(0,' + asideY + 'px,0)';
-        prevAsideY = asideY;
-      }
-
       for (var i = 0; i < cards.length; i++) {
         if (y >= switchMarks[i]) idx = i;
 
+        /* Karte i schrumpft genau auf der Strecke, auf der Karte i+1
+           heranrueckt und sie zudeckt — sonst faellt sie sichtbar ins
+           Leere, bevor etwas drueberliegt. Bewusst an marks, NICHT an
+           switchMarks: die Hervorhebung darf vorlaufen, die Geometrie nicht. */
         var s = 1;
         if (i < cards.length - 1) {
           var span = marks[i + 1] - marks[i];
@@ -1150,17 +1004,13 @@
           s = 1 - p * (1 - MIN_SCALE);
         }
         s = Math.round(s * 1000) / 1000;
-
-        var cy = pinY(y, cardPinStart[i]);
-
-        if (prevScale[i] !== s || prevCardY[i] !== cy) {
-          cards[i].style.transform =
-            'translate3d(0,' + cy + 'px,0) scale3d(' + s + ',' + s + ',1)';
+        if (prevScale[i] !== s) {
+          cards[i].style.transform = 'scale3d(' + s + ',' + s + ',1)';
           prevScale[i] = s;
-          prevCardY[i] = cy;
         }
       }
 
+      // scaleX statt width, gleiche Begruendung wie in Block 41
       if (fill) {
         var total = marks[marks.length - 1] - marks[0];
         var f = total > 0 ? (y - marks[0]) / total : 0;
@@ -1180,10 +1030,10 @@
       if (master) { master.kill(); master = null; }
       active = -1;
       marks = []; switchMarks = []; prevScale = []; prevFill = -1;
+      track.style.removeProperty('--wf-stick');
       if (fill) fill.style.transform = 'scaleX(0)';
-      aside.style.removeProperty('transform');
       cards.forEach(function (c) {
-        c.style.removeProperty('transform');
+        c.style.transform = '';
         c.classList.remove('is-active');
       });
     }
@@ -1703,7 +1553,7 @@
   })();
    
 
-    /* ===================================================================
+  /* ===================================================================
      70  FAQ — HOVER- UND KLICK-LOGIK
      Horizontales Akkordeon. Auf Zeigergeraeten oeffnet Hover, auf Touch
      der Tap.
@@ -1722,15 +1572,7 @@
         hat nicht angesagt, dass sich beim Fokus etwas oeffnet.
      4. Enter und Leertaste aktivieren. Mit role="button" wird das
         erwartet, ein Div liefert es nicht von selbst.
-     5. NEU 05.09.: --faq-label-x. Das Label sitzt per Custom-Code
-        absolut in der Card und zentriert sich ueber diesen Fixwert
-        (siehe Head-Code-Kommentar dort fuer die Begruendung). Der Wert
-        ist die HALBE Breite einer Card, die gerade NICHT offen ist.
-        Eine einmalige Messung pro Resize reicht — die Summe aller
-        flex-grow im Wrapper ist immer 14 (eine offene Card mit 7 +
-        sieben geschlossene mit je 1), WELCHE Card offen ist aendert
-        daran nichts. Die Breite einer geschlossenen Card bleibt also
-        stabil, unabhaengig vom Zustand ihrer Nachbarn. */
+     =================================================================== */
   (function () {
     var wrapper = qs('.faq-wrapper');
     var cards = qsa('.faq-card');
@@ -1742,32 +1584,6 @@
     function hasPointer() { return POINTER.matches; }
 
     var defaultCard = qs('.faq-card.is-open') || cards[0];
-
-    /* ---------- Label-X messen ----------
-       Nur ab Desktop relevant (Tablet/Mobile setzt --faq-label-x nicht
-       ein, siehe Media Query im Head-Code) — schadet dort aber nicht,
-       der Wert wird schlicht nicht konsumiert. */
-    function measureLabelX() {
-      var closed = null;
-      for (var i = 0; i < cards.length; i++) {
-        if (!cards[i].classList.contains('is-open')) { closed = cards[i]; break; }
-      }
-      if (!closed) closed = cards[0];
-      var w = closed.offsetWidth;
-      if (w) {
-        document.documentElement.style.setProperty(
-          '--faq-label-x', Math.round(w / 2) + 'px');
-      }
-    }
-
-    var resizeTimer = null;
-    function scheduleMeasure() {
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(measureLabelX, 120);
-    }
-
-    onFonts(measureLabelX);
-    window.addEventListener('resize', scheduleMeasure);
 
     function openOnly(card) {
       cards.forEach(function (c) {
