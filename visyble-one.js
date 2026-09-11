@@ -1046,140 +1046,102 @@
     onFonts(boot);
   })();
 
-  /* ===================================================================
+ /* ===================================================================
      42  WORKFLOW — SCROLL STACK (AB TABLET)
-     Das Stapeln macht CSS ueber position:sticky. Hier laeuft nur, was
-     sticky nicht kann: Skalierung, aktive Karte, Fortschrittslinie.
-
-     EIN Trigger auf dem TRACK, nicht je einer pro Karte. ScrollTrigger
-     vermisst seine Trigger beim refresh() — klebt eine Karte gerade,
-     wird sie an der geklebten statt an der Layout-Position gemessen und
-     der Effekt springt. Der Track klebt nicht.
-
-     KORRIGIERT 03.09.: Die Annahme "offsetTop bleibt bei sticky
-     unveraendert" ist FALSCH. Chrome liefert bei geklebten Elementen die
-     VERSCHOBENE Position. Nachgemessen bei 390px Viewport:
-
-       Layout (Seitenanfang):  [0,   263, 526, 819, 1112]
-       geklebt (y=2100):       [642, 654, 666, 819, 1112]
-
-     Die ersten drei Werte sind die Klebepositionen, nicht das Layout —
-     der 12px-Abstand zwischen ihnen ist exakt STEP. Laeuft measure()
-     in diesem Moment, sind alle marks um bis zu 642px daneben und der
-     ganze Stapel rechnet falsch.
-
-     Das passiert nicht theoretisch: Block 99 refresht nach 'load', und
-     der Browser stellt beim Reload die alte Scrollposition wieder her.
-     Wer also im Workflow-Bereich F5 drueckt, bekommt den kaputten Stapel.
-     Dasselbe bei Rotation und bei jedem Resize in diesem Abschnitt.
-
-     Loesung: measureCardTops() nimmt die Karten fuer die Dauer der
-     Messung aus dem Sticky-Zustand. Kostet EINEN erzwungenen Reflow,
-     aber measure() laeuft nur beim Refresh, nie pro Frame.
+     GEAENDERT: kein position:sticky mehr, weder auf Aside noch auf
+     Karten. Grund: beide klebten in getrennten Containern mit
+     unterschiedlicher Hoehe -> unterschiedliche Loese-Zeitpunkte, eine
+     Karte konnte sich loesen waehrend die Aside noch klebte. Jetzt
+     schreibt JS die Position per transform: translate3d, fuer Aside UND
+     Karten nach DERSELBEN Formel mit EINEM gemeinsamen Loese-Punkt
+     (SHARED_PIN_END). Kann sich nur noch alles zusammen loesen.
+     Prinzip: reactbits.dev/components/scroll-stack (transform-Pin statt
+     sticky), angepasst an bestehenden globalen Scroll/ScrollTrigger.
+     Aktiv-Logik und Scale unveraendert aus der Vorversion.
      =================================================================== */
   (function () {
     if (!GS || !WF || WF.cards.length < 2) return;
 
-    var track = WF.track, cards = WF.cards, fill = WF.fill;
+    var track = WF.track, cards = WF.cards, fill = WF.fill, aside = WF.aside;
 
     /* ---------- Stellschrauben ---------- */
-    var MIN_SCALE = 0.93,  // Endgroesse einer verdeckten Karte
-        STEP = 12,         // sichtbare Kante je Karte, MUSS zum CSS passen
-        /* Abstand des Stapels zur Schlitzkante. Der Aside-Schatten reicht
-           rund 22px nach unten. Klebt der Stapel innerhalb dieser
-           Reichweite, liegt der Schatten DAUERHAFT auf Karte 1 und liest
-           sich nicht als Durchfahrt. Bei 40px faellt er ins Leere. */
+    var MIN_SCALE = 0.93,
+        STEP = 12,
         SLOT_OFFSET = 40,
-        /* Anteil der Strecke, um den der Wechsel der aktiven Karte
-           vorgezogen wird. 0 = erst wenn die neue Karte klebt, dann ist
-           die alte aber schon groesstenteils verdeckt. */
         HANDOVER = 0.45,
-        // Sichtbarer Abstand zwischen Navbar-Unterkante und Aside-Inhalt
-        NAV_GAP = 16;
+        NAV_GAP = 16,
+        DWELL_VH = 0.3;   // Anteil Viewport-Hoehe, den die letzte Karte nach
+                          // Aktivierung steht, bevor alles gemeinsam loest.
 
-    var master = null, marks = [], switchMarks = [];
-    var active = -1, prevScale = [], prevFill = -1;
-
-    /* ---------- Layout-Positionen der Karten ----------
-       offsetTop allein ist unbrauchbar, sobald eine Karte klebt (siehe
-       Blockkommentar). position:static setzt sie fuer einen Moment in
-       den normalen Fluss zurueck, das Auslesen erzwingt den Reflow,
-       danach wird der Inline-Wert wieder entfernt und die CSS-Regel
-       (position:sticky) greift erneut.
-
-       Das Zuruecksetzen laeuft ueber die vorher gelesenen Inline-Werte,
-       nicht ueber ein pauschales removeProperty: haette eine Karte je
-       einen Inline-position-Wert bekommen, wuerde der sonst still
-       verschwinden. */
-    function measureCardTops() {
-      var prev = cards.map(function (c) { return c.style.position; });
-      cards.forEach(function (c) { c.style.position = 'static'; });
-
-      // Ein Durchgang, ein Reflow — nicht abwechselnd schreiben und lesen
-      var tops = cards.map(function (c) { return c.offsetTop; });
-
-      cards.forEach(function (c, i) {
-        if (prev[i]) c.style.position = prev[i];
-        else c.style.removeProperty('position');
-      });
-      return tops;
-    }
+    var master = null;
+    var cardTop = [], cardScreenTop = [], cardPinStart = [];
+    var asidePinStart = 0, asideScreenTop = 0;
+    var marks = [], switchMarks = [], sharedPinEnd = 0;
+    var active = -1, prevScale = [], prevCardY = [], prevAsideY = null, prevFill = -1;
 
     /* ---------- Messen ----------
-       Einmal pro Refresh, nie pro Frame. */
+       Aside und Karten sind normale, nicht positionierte Elemente —
+       offsetTop ist immer die echte Layout-Position. Kein
+       Reset-auf-static-Trick mehr noetig. */
     function measure() {
-      // Navbar ist position:fixed, Hoehe unterscheidet sich pro Breakpoint
-      // (Padding 14/12/10px). Muss VOR der Aside-Messung laufen, sonst
-      // rechnet padding-top noch mit dem alten/fehlenden Wert.
       var navEl = qs('.navbar-logo-left');
       var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 56) + NAV_GAP);
       document.documentElement.style.setProperty('--nav-clear', navClear + 'px');
 
-      /* Klebeposition des Aside MITRECHNEN.
-         Der Aside klebt seit 04.09. nicht mehr bei top:0, sondern bei
-         top:var(--nav-clear) — die Navbar-Freihaltung laeuft jetzt ueber
-         den Sticky-Offset statt ueber ein padding-top, damit der
-         Titel-Abstand im Ruhezustand dem der anderen Sections entspricht.
+      var pageTop = window.scrollY || window.pageYOffset;
 
-         Ohne diesen Summand klebt die erste Karte auf Aside-Hoehe plus
-         SLOT_OFFSET, also 92px zu weit oben: gemessen lag sie 52px HINTER
-         dem Aside statt 40px darunter.
-         Bei top:0 (Desktop-Fallback, alter Stand) ist asideTop 0 — die
-         Formel bleibt dort unveraendert. */
-      var asideTop = 0;
-      if (WF.aside) {
-        asideTop = parseFloat(window.getComputedStyle(WF.aside).top) || 0;
-      }
+      var asideTop0 = aside.getBoundingClientRect().top + pageTop;
+      asideScreenTop = navClear;
+      asidePinStart = asideTop0 - asideScreenTop;
 
-      var base = asideTop + (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
-      track.style.setProperty('--wf-stick', base + 'px');
+      var asideH = aside.offsetHeight;
 
-      var top = track.getBoundingClientRect().top +
-                (window.scrollY || window.pageYOffset);
-
-      var tops = measureCardTops();
-      marks = tops.map(function (t, i) {
-        return top + t - (base + i * STEP);
+      cardTop = cards.map(function (c) {
+        return c.getBoundingClientRect().top + pageTop;
       });
+      cardScreenTop = cards.map(function (c, i) {
+        return navClear + asideH + SLOT_OFFSET + i * STEP;
+      });
+      cardPinStart = cardTop.map(function (t, i) {
+        return t - cardScreenTop[i];
+      });
+
+      marks = cardPinStart.slice();
       switchMarks = marks.map(function (m, i) {
         return i === 0 ? m : m - HANDOVER * (m - marks[i - 1]);
       });
 
+      var vh = window.innerHeight || 800;
+      sharedPinEnd = cardPinStart[cardPinStart.length - 1] + DWELL_VH * vh;
+
       prevScale = cards.map(function () { return -1; });
+      prevCardY = cards.map(function () { return null; });
+      prevAsideY = null;
       prevFill = -1;
+    }
+
+    /* ---------- Eine Position nach der gemeinsamen Formel ---------- */
+    function pinY(y, pinStart) {
+      var v;
+      if (y <= pinStart) v = 0;
+      else if (y <= sharedPinEnd) v = y - pinStart;
+      else v = sharedPinEnd - pinStart;
+      return Math.round(v * 100) / 100;
     }
 
     /* ---------- Zeichnen ---------- */
     function paint(y) {
       var idx = 0;
 
+      var asideY = pinY(y, asidePinStart);
+      if (prevAsideY !== asideY) {
+        aside.style.transform = 'translate3d(0,' + asideY + 'px,0)';
+        prevAsideY = asideY;
+      }
+
       for (var i = 0; i < cards.length; i++) {
         if (y >= switchMarks[i]) idx = i;
 
-        /* Karte i schrumpft genau auf der Strecke, auf der Karte i+1
-           heranrueckt und sie zudeckt — sonst faellt sie sichtbar ins
-           Leere, bevor etwas drueberliegt. Bewusst an marks, NICHT an
-           switchMarks: die Hervorhebung darf vorlaufen, die Geometrie nicht. */
         var s = 1;
         if (i < cards.length - 1) {
           var span = marks[i + 1] - marks[i];
@@ -1188,13 +1150,17 @@
           s = 1 - p * (1 - MIN_SCALE);
         }
         s = Math.round(s * 1000) / 1000;
-        if (prevScale[i] !== s) {
-          cards[i].style.transform = 'scale3d(' + s + ',' + s + ',1)';
+
+        var cy = pinY(y, cardPinStart[i]);
+
+        if (prevScale[i] !== s || prevCardY[i] !== cy) {
+          cards[i].style.transform =
+            'translate3d(0,' + cy + 'px,0) scale3d(' + s + ',' + s + ',1)';
           prevScale[i] = s;
+          prevCardY[i] = cy;
         }
       }
 
-      // scaleX statt width, gleiche Begruendung wie in Block 41
       if (fill) {
         var total = marks[marks.length - 1] - marks[0];
         var f = total > 0 ? (y - marks[0]) / total : 0;
@@ -1214,10 +1180,10 @@
       if (master) { master.kill(); master = null; }
       active = -1;
       marks = []; switchMarks = []; prevScale = []; prevFill = -1;
-      track.style.removeProperty('--wf-stick');
       if (fill) fill.style.transform = 'scaleX(0)';
+      aside.style.removeProperty('transform');
       cards.forEach(function (c) {
-        c.style.transform = '';
+        c.style.removeProperty('transform');
         c.classList.remove('is-active');
       });
     }
