@@ -143,28 +143,42 @@
     window.lenis = lenis;
   })();
 
-   /* ===================================================================
+    /* ===================================================================
      02  GLOBAL — FADE-INS
      Der Startzustand (opacity 0) haengt an html.fade-ready, das ein
      Inline-Script im Head sofort setzt. Faellt JS aus, wird die Klasse
      nie gesetzt und nichts ist unsichtbar — kein Blackout-Risiko.
 
-     GEAENDERT: Apple-Stil statt "Hochfahren". Kuerzerer Weg (10px statt
-     28px), expo.out statt power3.out — die Bewegung endet fast unmerklich
-     statt sichtbar auszurollen. Trigger frueher (top 92%), damit nichts
-     mehr "aufploppt", wenn es laengst im Bild ist. will-change wird nach
-     der Animation zurueckgenommen: vorher blieben Hero und alle
-     Section-Header dauerhaft als eigene Compositing-Ebene bestehen.
+     Hero und Section-Header: Apple-Stil statt "Hochfahren". Kuerzerer
+     Weg (10px statt 28px), expo.out statt power3.out — die Bewegung
+     endet fast unmerklich statt sichtbar auszurollen. Trigger frueher
+     (top 92%), damit nichts mehr "aufploppt", wenn es laengst im Bild
+     ist. will-change wird nach der Animation zurueckgenommen: vorher
+     blieben Hero und alle Section-Header dauerhaft als eigene
+     Compositing-Ebene bestehen.
 
-     FIX: [data-fade="cta"] fehlte hier komplett. Das CSS setzt diese
-     Elemente (die beiden Hero-Buttons) auf opacity:0, aber ohne Handler
-     zog sie nie jemand wieder hoch — dauerhaft unsichtbar.
-     Eigene Animation, kein Fade-von-unten wie Hero/Header: Scale-Bounce
-     (Apple-Stil) — leichtes Ueberschwingen ueber 1 hinaus, dann
-     Einrasten auf Normalgroesse. clearProps am Ende ist Pflicht: sonst
-     bleibt eine Inline-transform:scale(1) stehen, die jede spaetere
-     Hover-Transform auf dem Button (hoehere CSS-Spezifitaet durch
-     Inline-Style) blockieren wuerde.
+     CTA-BUTTONS — SCALE-BOUNCE:
+     [data-fade="cta"] fehlte hier komplett. Das CSS setzt diese
+     Elemente auf opacity:0, ohne Handler zog sie nie jemand wieder
+     hoch — beide Hero-Buttons blieben dauerhaft unsichtbar.
+
+     Bewusst KEIN Fade-von-unten wie Hero/Header und bewusst KEIN
+     back.out(): dort ist der Ueberschwinger ein Nebenprodukt der
+     Ease-Kurve und nicht direkt steuerbar. Hier zwei explizite
+     Schritte — hoch auf PEAK, zurueck auf 1.
+
+     PEAK-Herleitung: Apples Standard-Spring ist response 0.5 /
+     dampingFraction 0.825. Der Ueberschwinger eines gedaempften
+     Federsystems ist e^(-pi*z/sqrt(1-z^2)) — bei z=0.825 sind das
+     1%, also unsichtbar. Der sichtbare Apple-Pop entspricht z~0.6-0.7,
+     das sind 5-9% Ueberschwinger. Daher PEAK 1.06.
+
+     KEIN stagger: die Buttons sollen als Paar kommen. Versetzt liest
+     es sich wie ein Ladefehler, nicht wie Absicht.
+
+     clearProps am Ende ist Pflicht: sonst bleibt eine Inline-
+     transform:scale(1) stehen, die per Inline-Spezifitaet jede
+     spaetere Hover-Transform auf dem Button blockiert.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -173,10 +187,15 @@
     }
     if (REDUCE) return;
 
-    function releaseWillChange() {
-      this.targets().forEach(function (el) {
-        el.style.willChange = 'auto';
-      });
+    /* ---------- Stellschrauben: CTA-Bounce ---------- */
+    var CTA_FROM  = 0.8,    // Startgroesse
+        CTA_PEAK  = 1.06,   // Ueberschwinger, siehe Herleitung oben
+        CTA_UP    = 0.42,   // Dauer Start -> Peak
+        CTA_BACK  = 0.24,   // Dauer Peak -> 1
+        CTA_DELAY = 0.4;    // Nachlauf hinter der Headline
+
+    function releaseWillChange(targets) {
+      targets.forEach(function (el) { el.style.willChange = 'auto'; });
     }
 
     onFonts(function () {
@@ -186,24 +205,25 @@
         gsap.fromTo(hero,
           { opacity: 0, y: 10 },
           { opacity: 1, y: 0, duration: 1.4, ease: 'expo.out',
-            stagger: 0.07, delay: 0.15, onComplete: releaseWillChange });
+            stagger: 0.07, delay: 0.15,
+            onComplete: function () { releaseWillChange(this.targets()); } });
       }
 
-      // Hero-CTA-Buttons: Scale-Bounce statt Fade-von-unten.
-      // back.out(2) ueberschwingt leicht ueber scale(1) hinaus und faengt
-      // sich wieder — das ist der "Bounce", kein reines Einblenden.
+      // Hero-CTA-Buttons: Scale-Bounce, beide gleichzeitig
       var cta = qsa('[data-fade="cta"]');
       if (cta.length) {
-        gsap.fromTo(cta,
-          { opacity: 0, scale: 0.6 },
-          { opacity: 1, scale: 1, duration: 0.7, ease: 'back.out(2)',
-            stagger: 0.07, delay: 0.4,
-            onComplete: function () {
-              releaseWillChange.call(this);
-              // Inline-transform wieder raus, sonst blockiert sie Hover-
-              // oder andere Transform-Interaktionen auf dem Button.
-              gsap.set(this.targets(), { clearProps: 'transform' });
-            } });
+        gsap.timeline({ delay: CTA_DELAY })
+          .fromTo(cta,
+            { opacity: 0, scale: CTA_FROM },
+            { opacity: 1, scale: CTA_PEAK,
+              duration: CTA_UP, ease: 'power2.out' })
+          .to(cta,
+            { scale: 1, duration: CTA_BACK, ease: 'power2.inOut',
+              onComplete: function () {
+                releaseWillChange(cta);
+                // Inline-transform raeumen, sonst blockiert sie Hover
+                gsap.set(cta, { clearProps: 'transform' });
+              } });
       }
 
       // Section-Header: direkte Kinder staffeln (Label -> Titel)
@@ -211,7 +231,7 @@
         gsap.fromTo(header.children,
           { opacity: 0, y: 10 },
           { opacity: 1, y: 0, duration: 1.1, ease: 'expo.out', stagger: 0.06,
-            onComplete: releaseWillChange,
+            onComplete: function () { releaseWillChange(this.targets()); },
             scrollTrigger: { trigger: header, start: 'top 92%', once: true } });
       });
     });
