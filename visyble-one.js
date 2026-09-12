@@ -143,7 +143,7 @@
     window.lenis = lenis;
   })();
 
- /* ===================================================================
+  /* ===================================================================
      02  GLOBAL — FADE-INS
      Der Startzustand (opacity 0) haengt an html.fade-ready, das ein
      Inline-Script im Head sofort setzt. Faellt JS aus, wird die Klasse
@@ -155,6 +155,13 @@
      mehr "aufploppt", wenn es laengst im Bild ist. will-change wird nach
      der Animation zurueckgenommen: vorher blieben Hero und alle
      Section-Header dauerhaft als eigene Compositing-Ebene bestehen.
+
+     FIX: [data-fade="cta"] fehlte hier komplett. Das CSS setzt diese
+     Elemente (die beiden Hero-Buttons) auf opacity:0, aber ohne eigenen
+     Handler zog sie nie jemand wieder hoch — sie blieben dauerhaft
+     unsichtbar. Eigener Block, kein Teil von "hero": die Buttons sollen
+     mit einem kleinen Nachlauf nach der Headline erscheinen, nicht
+     gleichzeitig mit ihr.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -179,6 +186,16 @@
             stagger: 0.07, delay: 0.15, onComplete: releaseWillChange });
       }
 
+      // Hero-CTA-Buttons: eigener data-fade-Wert, eigener (spaeterer)
+      // Delay, damit sie sichtbar NACH der Headline reinkommen.
+      var cta = qsa('[data-fade="cta"]');
+      if (cta.length) {
+        gsap.fromTo(cta,
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 1.4, ease: 'expo.out',
+            stagger: 0.07, delay: 0.4, onComplete: releaseWillChange });
+      }
+
       // Section-Header: direkte Kinder staffeln (Label -> Titel)
       qsa('[data-fade="header"]').forEach(function (header) {
         gsap.fromTo(header.children,
@@ -189,7 +206,6 @@
       });
     });
   })();
-
    
 
 /* ===================================================================
