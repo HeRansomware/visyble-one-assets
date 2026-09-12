@@ -143,7 +143,7 @@
     window.lenis = lenis;
   })();
 
-  /* ===================================================================
+   /* ===================================================================
      02  GLOBAL — FADE-INS
      Der Startzustand (opacity 0) haengt an html.fade-ready, das ein
      Inline-Script im Head sofort setzt. Faellt JS aus, wird die Klasse
@@ -157,11 +157,14 @@
      Section-Header dauerhaft als eigene Compositing-Ebene bestehen.
 
      FIX: [data-fade="cta"] fehlte hier komplett. Das CSS setzt diese
-     Elemente (die beiden Hero-Buttons) auf opacity:0, aber ohne eigenen
-     Handler zog sie nie jemand wieder hoch — sie blieben dauerhaft
-     unsichtbar. Eigener Block, kein Teil von "hero": die Buttons sollen
-     mit einem kleinen Nachlauf nach der Headline erscheinen, nicht
-     gleichzeitig mit ihr.
+     Elemente (die beiden Hero-Buttons) auf opacity:0, aber ohne Handler
+     zog sie nie jemand wieder hoch — dauerhaft unsichtbar.
+     Eigene Animation, kein Fade-von-unten wie Hero/Header: Scale-Bounce
+     (Apple-Stil) — leichtes Ueberschwingen ueber 1 hinaus, dann
+     Einrasten auf Normalgroesse. clearProps am Ende ist Pflicht: sonst
+     bleibt eine Inline-transform:scale(1) stehen, die jede spaetere
+     Hover-Transform auf dem Button (hoehere CSS-Spezifitaet durch
+     Inline-Style) blockieren wuerde.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -186,16 +189,21 @@
             stagger: 0.07, delay: 0.15, onComplete: releaseWillChange });
       }
 
-      // Hero-CTA-Buttons: NUR opacity. Die vorhandene Scale-Animation
-      // (groesser -> normal) liegt separat auf den Buttons und nutzt
-      // transform - das darf hier nicht angefasst werden, sonst
-      // ueberschreibt GSAP die Interaction.
+      // Hero-CTA-Buttons: Scale-Bounce statt Fade-von-unten.
+      // back.out(2) ueberschwingt leicht ueber scale(1) hinaus und faengt
+      // sich wieder — das ist der "Bounce", kein reines Einblenden.
       var cta = qsa('[data-fade="cta"]');
       if (cta.length) {
         gsap.fromTo(cta,
-          { opacity: 0 },
-          { opacity: 1, duration: 1.4, ease: 'expo.out',
-            stagger: 0.07, delay: 0.4, onComplete: releaseWillChange });
+          { opacity: 0, scale: 0.6 },
+          { opacity: 1, scale: 1, duration: 0.7, ease: 'back.out(2)',
+            stagger: 0.07, delay: 0.4,
+            onComplete: function () {
+              releaseWillChange.call(this);
+              // Inline-transform wieder raus, sonst blockiert sie Hover-
+              // oder andere Transform-Interaktionen auf dem Button.
+              gsap.set(this.targets(), { clearProps: 'transform' });
+            } });
       }
 
       // Section-Header: direkte Kinder staffeln (Label -> Titel)
