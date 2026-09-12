@@ -186,13 +186,15 @@
             stagger: 0.07, delay: 0.15, onComplete: releaseWillChange });
       }
 
-      // Hero-CTA-Buttons: eigener data-fade-Wert, eigener (spaeterer)
-      // Delay, damit sie sichtbar NACH der Headline reinkommen.
+      // Hero-CTA-Buttons: NUR opacity. Die vorhandene Scale-Animation
+      // (groesser -> normal) liegt separat auf den Buttons und nutzt
+      // transform - das darf hier nicht angefasst werden, sonst
+      // ueberschreibt GSAP die Interaction.
       var cta = qsa('[data-fade="cta"]');
       if (cta.length) {
         gsap.fromTo(cta,
-          { opacity: 0, y: 10 },
-          { opacity: 1, y: 0, duration: 1.4, ease: 'expo.out',
+          { opacity: 0 },
+          { opacity: 1, duration: 1.4, ease: 'expo.out',
             stagger: 0.07, delay: 0.4, onComplete: releaseWillChange });
       }
 
