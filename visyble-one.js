@@ -970,21 +970,33 @@
     onFonts(boot);
   })();
 
-  /* ===================================================================
+   /* ===================================================================
      42  WORKFLOW — SCROLL STACK (AB TABLET)
      Das Stapeln macht CSS ueber position:sticky. Hier laeuft nur, was
-     sticky nicht kann: Skalierung, aktive Karte, Fortschrittslinie.
+     sticky nicht kann: Skalierung, aktive Karte, Fortschrittslinie —
+     und die Vermessung, aus der das CSS seine drei Zahlen bekommt
+     (--wf-stick, --wf-visual, --wf-hold).
 
      EIN Trigger auf dem TRACK, nicht je einer pro Karte. ScrollTrigger
      vermisst seine Trigger beim refresh() — klebt eine Karte gerade,
      wird sie an der geklebten statt an der Layout-Position gemessen und
-     der Effekt springt. Der Track klebt nicht, und offsetTop bleibt bei
-     sticky unveraendert.
+     der Effekt springt. Der Track klebt nicht.
+
+     GEAENDERT 13.09. — drei Dinge:
+     1. navClear ist jetzt Summand von --wf-stick. Ohne ihn lag die
+        Klebeposition bei 227px, die Aside-Unterkante aber bei 279px:
+        die obersten 52px jeder Karte steckten hinter dem Aside.
+     2. measureCardTops() — offsetTop liefert bei position:sticky die
+        GEKLEBTE Position. Jeder Refresh, der waehrend des Klebens lief
+        (Rotation, Font-Load, Resize), hat alle Marken verschoben.
+     3. --wf-hold / --wf-visual: gemeinsamer Loesepunkt von Aside und
+        Stapel, Begruendung im CSS-Block "AUSSTIEG".
      =================================================================== */
   (function () {
     if (!GS || !WF || WF.cards.length < 2) return;
 
-    var track = WF.track, cards = WF.cards, fill = WF.fill;
+    var track = WF.track, cards = WF.cards, fill = WF.fill, aside = WF.aside;
+    var root = document.documentElement;
 
     /* ---------- Stellschrauben ---------- */
     var MIN_SCALE = 0.93,  // Endgroesse einer verdeckten Karte
@@ -995,8 +1007,7 @@
            sich nicht als Durchfahrt. Bei 40px faellt er ins Leere. */
         SLOT_OFFSET = 40,
         /* Anteil der Strecke, um den der Wechsel der aktiven Karte
-           vorgezogen wird. 0 = erst wenn die neue Karte klebt, dann ist
-           die alte aber schon groesstenteils verdeckt. */
+           vorgezogen wird. */
         HANDOVER = 0.45,
         // Sichtbarer Abstand zwischen Navbar-Unterkante und Aside-Inhalt
         NAV_GAP = 16;
@@ -1004,25 +1015,71 @@
     var master = null, marks = [], switchMarks = [];
     var active = -1, prevScale = [], prevFill = -1;
 
+    /* ---------- Layout-Positionen der Karten ----------
+       Sticky verschiebt die Box, und offsetTop gibt die verschobene
+       Position zurueck. Kurz auf static zwingen, messen, zuruecknehmen.
+       Batch: erst alle schreiben, dann alle lesen — einzeln waeren es
+       fuenf erzwungene Layouts statt einem. */
+    function measureCardTops() {
+      var tops = [];
+      cards.forEach(function (c) { c.style.position = 'static'; });
+      cards.forEach(function (c) { tops.push(c.offsetTop); });
+      cards.forEach(function (c) { c.style.position = ''; });
+      return tops;
+    }
+
     /* ---------- Messen ----------
        Einmal pro Refresh, nie pro Frame. */
     function measure() {
-      // Navbar ist position:fixed, Hoehe unterscheidet sich pro Breakpoint
-      // (Padding 14/12/10px). Muss VOR der Aside-Messung laufen, sonst
-      // rechnet padding-top noch mit dem alten/fehlenden Wert.
+      /* 1. Navbar ist position:fixed, Hoehe unterscheidet sich pro
+         Breakpoint (Padding 14/12/10px). MUSS zuerst laufen, alles
+         Weitere rechnet auf --nav-clear. */
       var navEl = qs('.navbar-logo-left');
       var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 56) + NAV_GAP);
-      document.documentElement.style.setProperty('--nav-clear', navClear + 'px');
+      root.style.setProperty('--nav-clear', navClear + 'px');
 
-      var base = (WF.aside ? WF.aside.offsetHeight : 194) + SLOT_OFFSET;
+      /* 2. Eigene Schreibwerte zuruecknehmen. Gemessen wird auf dem
+         Layout, das OHNE diesen Block gilt — sonst misst der zweite
+         Refresh die Haltehoehe des ersten mit und der Wert laeuft mit
+         jedem Refresh weiter auf. */
+      root.style.setProperty('--wf-hold', 'auto');
+      track.style.marginTop = '';
+      var baseMT = parseFloat(getComputedStyle(track).marginTop) || 0;
+
+      /* 3. Sichtbare Aside-Hoehe inkl. Padding (border-box). Das ist die
+         Hoehe, die das ::before im CSS bekommt. */
+      var visual = aside ? aside.offsetHeight : 187;
+
+      /* 4. Klebeposition der ersten Karte. */
+      var base = navClear + visual + SLOT_OFFSET;
       track.style.setProperty('--wf-stick', base + 'px');
 
+      /* 5. Karten vermessen. */
+      var tops = measureCardTops();
+      var heights = cards.map(function (c) { return c.offsetHeight; });
+
+      /* 6. Groesster Fussabdruck. Der Ausstieg des Stapels beginnt mit
+         der Karte, deren (Klebeposition + Hoehe) am groessten ist —
+         nicht zwangslaeufig die letzte, die Karten sind unterschiedlich
+         hoch. */
+      var foot = 0;
+      heights.forEach(function (h, i) {
+        foot = Math.max(foot, base + i * STEP + h);
+      });
+
+      /* 7. Aside auf denselben Fussabdruck bringen und die Extrahoehe am
+         Track wieder abziehen. Siehe CSS-Block "AUSSTIEG". */
+      var hold = foot - navClear;
+      root.style.setProperty('--wf-visual', visual + 'px');
+      root.style.setProperty('--wf-hold', hold + 'px');
+      track.style.marginTop = (baseMT - (hold - visual)) + 'px';
+
+      /* 8. Marken. Erst JETZT lesen — margin-top wurde eben geschrieben.
+         Rechnerisch hebt es sich auf, gemessen ist aber gemessen. */
       var top = track.getBoundingClientRect().top +
                 (window.scrollY || window.pageYOffset);
 
-      marks = cards.map(function (c, i) {
-        return top + c.offsetTop - (base + i * STEP);
-      });
+      marks = tops.map(function (t, i) { return top + t - (base + i * STEP); });
       switchMarks = marks.map(function (m, i) {
         return i === 0 ? m : m - HANDOVER * (m - marks[i - 1]);
       });
@@ -1077,9 +1134,13 @@
       active = -1;
       marks = []; switchMarks = []; prevScale = []; prevFill = -1;
       track.style.removeProperty('--wf-stick');
+      track.style.marginTop = '';
+      root.style.removeProperty('--wf-hold');
+      root.style.removeProperty('--wf-visual');
       if (fill) fill.style.transform = 'scaleX(0)';
       cards.forEach(function (c) {
         c.style.transform = '';
+        c.style.position = '';
         c.classList.remove('is-active');
       });
     }
