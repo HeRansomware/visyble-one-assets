@@ -970,7 +970,7 @@
     onFonts(boot);
   })();
 
-   /* ===================================================================
+     /* ===================================================================
      42  WORKFLOW — SCROLL STACK (AB TABLET)
      Das Stapeln macht CSS ueber position:sticky. Hier laeuft nur, was
      sticky nicht kann: Skalierung, aktive Karte, Fortschrittslinie —
@@ -982,15 +982,8 @@
      wird sie an der geklebten statt an der Layout-Position gemessen und
      der Effekt springt. Der Track klebt nicht.
 
-     GEAENDERT 13.09. — drei Dinge:
-     1. navClear ist jetzt Summand von --wf-stick. Ohne ihn lag die
-        Klebeposition bei 227px, die Aside-Unterkante aber bei 279px:
-        die obersten 52px jeder Karte steckten hinter dem Aside.
-     2. measureCardTops() — offsetTop liefert bei position:sticky die
-        GEKLEBTE Position. Jeder Refresh, der waehrend des Klebens lief
-        (Rotation, Font-Load, Resize), hat alle Marken verschoben.
-     3. --wf-hold / --wf-visual: gemeinsamer Loesepunkt von Aside und
-        Stapel, Begruendung im CSS-Block "AUSSTIEG".
+     Aside und Stapel loesen GEMEINSAM, am Fussabdruck der groessten
+     Karte (Klebeposition + Hoehe). Begruendung im CSS-Block "AUSSTIEG".
      =================================================================== */
   (function () {
     if (!GS || !WF || WF.cards.length < 2) return;
@@ -1031,48 +1024,45 @@
     /* ---------- Messen ----------
        Einmal pro Refresh, nie pro Frame. */
     function measure() {
-      /* 1. Navbar ist position:fixed, Hoehe unterscheidet sich pro
-         Breakpoint (Padding 14/12/10px). MUSS zuerst laufen, alles
-         Weitere rechnet auf --nav-clear. */
+      // 1. Navbar-Hoehe -> --nav-clear. Muss zuerst laufen, alles Weitere
+      //    rechnet darauf.
       var navEl = qs('.navbar-logo-left');
       var navClear = Math.round((navEl ? navEl.getBoundingClientRect().height : 56) + NAV_GAP);
       root.style.setProperty('--nav-clear', navClear + 'px');
 
-      /* 2. Eigene Schreibwerte zuruecknehmen. Gemessen wird auf dem
-         Layout, das OHNE diesen Block gilt — sonst misst der zweite
-         Refresh die Haltehoehe des ersten mit und der Wert laeuft mit
-         jedem Refresh weiter auf. */
+      // 2. Eigene Schreibwerte zuruecknehmen, BEVOR gemessen wird — sonst
+      //    misst jeder weitere Refresh die Haltehoehe des vorigen mit.
       root.style.setProperty('--wf-hold', 'auto');
       track.style.marginTop = '';
       var baseMT = parseFloat(getComputedStyle(track).marginTop) || 0;
 
-      /* 3. Sichtbare Aside-Hoehe inkl. Padding (border-box). Das ist die
-         Hoehe, die das ::before im CSS bekommt. */
+      // 3. Sichtbare Aside-Hoehe inkl. Padding (border-box).
       var visual = aside ? aside.offsetHeight : 187;
 
-      /* 4. Klebeposition der ersten Karte. */
+      // 4. Klebeposition der ersten Karte.
       var base = navClear + visual + SLOT_OFFSET;
       track.style.setProperty('--wf-stick', base + 'px');
 
-      /* 5. Karten vermessen. */
+      // 5. Karten vermessen.
       var tops = measureCardTops();
       var heights = cards.map(function (c) { return c.offsetHeight; });
 
-            /* 6. Groesster Fussabdruck. Der Ausstieg des Stapels beginnt mit
-         der Karte, deren (Klebeposition + Hoehe) am groessten ist —
-         nicht zwangslaeufig die letzte, die Karten sind unterschiedlich
-         hoch. Aside und Stapel loesen exakt an diesem Punkt gemeinsam. */
+      // 6. Groesster Fussabdruck ueber alle Karten.
       var foot = 0;
       heights.forEach(function (h, i) {
         foot = Math.max(foot, base + i * STEP + h);
       });
 
-      /* 7. Aside auf denselben Fussabdruck bringen und die Extrahoehe am
-         Track wieder abziehen. Siehe CSS-Block "AUSSTIEG". */
+      // 7. Aside auf denselben Fussabdruck bringen, Extrahoehe am Track
+      //    per margin-top wieder abziehen. Layout/stageBottom bleiben so
+      //    unveraendert.
       var hold = foot - navClear;
+      root.style.setProperty('--wf-visual', visual + 'px');
+      root.style.setProperty('--wf-hold', hold + 'px');
+      track.style.marginTop = (baseMT - (hold - visual)) + 'px';
 
-      /* 8. Marken. Erst JETZT lesen — margin-top wurde eben geschrieben.
-         Rechnerisch hebt es sich auf, gemessen ist aber gemessen. */
+      // 8. Marken. Erst JETZT lesen — margin-top ist gerade geschrieben,
+      //    rechnerisch hebt es sich auf, aber gemessen ist gemessen.
       var top = track.getBoundingClientRect().top +
                 (window.scrollY || window.pageYOffset);
 
@@ -1092,10 +1082,6 @@
       for (var i = 0; i < cards.length; i++) {
         if (y >= switchMarks[i]) idx = i;
 
-        /* Karte i schrumpft genau auf der Strecke, auf der Karte i+1
-           heranrueckt und sie zudeckt — sonst faellt sie sichtbar ins
-           Leere, bevor etwas drueberliegt. Bewusst an marks, NICHT an
-           switchMarks: die Hervorhebung darf vorlaufen, die Geometrie nicht. */
         var s = 1;
         if (i < cards.length - 1) {
           var span = marks[i + 1] - marks[i];
@@ -1110,7 +1096,6 @@
         }
       }
 
-      // scaleX statt width, gleiche Begruendung wie in Block 41
       if (fill) {
         var total = marks[marks.length - 1] - marks[0];
         var f = total > 0 ? (y - marks[0]) / total : 0;
@@ -1147,21 +1132,7 @@
       if (REDUCE || !mq.matches) return;
       measure();
       master = ScrollTrigger.create({
-        trigger: track,
-        start: 'top bottom',
-        end: 'bottom top',
-        invalidateOnRefresh: true,
-        refreshPriority: 2,
-        onRefresh: function (s) { measure(); active = -1; paint(s.scroll()); },
-        onUpdate:  function (s) { paint(s.scroll()); }
-      });
-      active = -1;
-      paint(master.scroll());
-    }
-
-    var mq = onBreakpoint('(max-width: 991px)', boot);
-    onFonts(boot);
-  })();
+        trigger:
 
   /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL
