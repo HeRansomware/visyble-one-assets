@@ -1,0 +1,861 @@
+<!-- ===================== SEO: CANONICAL + OG-ERGAENZUNG =====================
+     Webflow setzt weder canonical noch og:url. Ohne canonical konkurrieren
+     Staging-Subdomain und Live-Domain um dieselben Inhalte.
+     Zeigt bewusst auf die LIVE-Domain, auch waehrend Staging. -->
+<link rel="canonical" href="https://visybleone.de/">
+<meta property="og:url" content="https://visybleone.de/">
+<meta property="og:locale" content="de_DE">
+<meta property="og:site_name" content="VISYBLE ONE">
+<!-- Webflow spiegelt og:title/og:description automatisch nach twitter:*,
+     og:image aber NICHT. Ohne das faellt X/Twitter auf og:image zurueck
+     (Spec-Verhalten), andere Reader lesen twitter:image ggf. direkt. -->
+<meta name="twitter:image" content="https://cdn.prod.website-files.com/69d2667ed3ec5ea509f437a2/6aa12bbce20373536957431b_visyble-one-og-image.jpg">
+
+<style>
+/* ===================== HERO: FRAME-MASK (VIDEO IN DEN LINIEN) ===================== */
+
+/* Die Maske sitzt auf dem Rahmen, nicht auf dem Video.
+   Dadurch laesst sich das Video tauschen, ohne die Maske anzufassen.
+
+   WICHTIG - CDN-URL, NICHT S3:
+   mask-image unterliegt CORS. Die rohe s3.amazonaws.com-URL liefert
+   keinen Access-Control-Allow-Origin-Header, die Maske wird dann
+   verworfen und gilt als transparent = alles unsichtbar.
+   cdn.prod.website-files.com liefert den Header. */
+.hero-frame {
+  position: relative;
+  overflow: hidden;
+
+  /* FULL BLEED: Breite und Versatz werden per JS gemessen (Block 20).
+     Reines CSS reicht hier nicht: calc(50% - 50vw) setzt einen
+     horizontal ZENTRIERTEN Wrapper voraus. Der Hero-Text sitzt in
+     einer linken Spalte, deren Mitte nicht die Viewportmitte ist -
+     die Formel liegt dann um genau diese Differenz daneben. */
+  max-width: none;
+
+  -webkit-mask-image: url('https://cdn.prod.website-files.com/69d2667ed3ec5ea509f437a2/6a671626585d346876ef4ff0_hero-mask.svg');
+          mask-image: url('https://cdn.prod.website-files.com/69d2667ed3ec5ea509f437a2/6a671626585d346876ef4ff0_hero-mask.svg');
+  -webkit-mask-size: 100% 100%;
+          mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+}
+
+/* 100vw rechnet MIT Scrollbar, die verfuegbare Breite ist schmaler.
+   Ohne das entsteht ein horizontaler Scrollbalken von ~15px.
+
+   clip, NICHT hidden: overflow:hidden erzeugt einen Scroll-Container
+   und bricht ScrollTrigger-Pins. clip tut das nicht. */
+.section-hero {
+  overflow-x: clip;
+}
+
+/* SIZER: dasselbe SVG, unsichtbar, aber im Flow.
+   Er allein bestimmt die Hoehe der Box (viewBox 1440 x 137) - deshalb
+   steht nirgends eine aspect-ratio und es gibt nichts pro Breakpoint
+   zu pflegen. Gleiche URL wie die Maske = ein Request. */
+.hero-frame-sizer {
+  display: block;
+  width: 100%;
+  height: auto;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Video fuellt die vom Sizer aufgespannte Box. */
+.hero-frame-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Safari blitzt sonst beim ersten Frame kurz weiss auf */
+  background-color: #080808;
+}
+
+/* Reduced Motion: Standbild statt Loop. Maske bleibt, der Rahmen sieht
+   identisch aus - nur ohne Bewegung. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-frame-video { display: none; }
+  .hero-frame { background-color: #C8C8C8; }
+}
+
+/* ===================== NAVBAR: LOGO OHNE LAYOUT-SHIFT =====================
+   Beide Logo-Bilder tragen loading="lazy" und KEINE width/height. Bis sie
+   geladen sind, ist der Link 0px breit: die Kapsel springt beim Laden, und
+   das Logo ist bis dahin nicht klickbar (gemessen 03.09., nav-logo-link
+   0x0 auf allen Breakpoints).
+
+   Die aspect-ratio reserviert die Breite, bevor das Bild da ist. Die Werte
+   sind GEMESSEN, nicht geschaetzt — die beiden Dateien haben deutlich
+   unterschiedliche Verhaeltnisse, ein gemeinsamer Wert wuerde eines von
+   beiden verzerren:
+     visybleONE.svg (Desktop-Schriftzug)  1517 x 344
+     logo-m.webp    (Mobile-Signet)        611 x 408
+
+   DAUERHAFTE LOESUNG: im Designer loading="eager" setzen und die Bilder
+   mit width/height versehen — dann kann dieser Block raus. */
+.nav-logo-link {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+}
+.nav-logo,
+.nav-logo-chrome {
+  height: 24px;
+  width: auto;
+}
+.nav-logo        { aspect-ratio: 1517 / 344; }
+.nav-logo-chrome { aspect-ratio:  611 / 408; }
+
+/* ===================== PRICING: ELECTRIC BORDER ===================== */
+
+/* Canvas-Container: liegt über der Card, blockt keine Klicks */
+.eb-canvas-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 350ms ease;
+}
+.eb-canvas-container.is-active { opacity: 1; }
+
+/* Weicher Hintergrund-Schein, verstärkt den Blitz */
+.eb-bg-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transform: scale(1.08);
+  filter: blur(28px);
+  background: linear-gradient(-30deg, #DCEBFF, transparent, #DCEBFF);
+  transition: opacity 350ms ease;
+}
+.eb-bg-glow.is-active { opacity: 0.22; }
+
+
+/* ===================== WORKFLOW: CARDS, ZIFFER, BORDER GLOW ===================== */
+
+/* Eigene Compositing-Ebene für den Track. */
+.workflow-track {
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* --- Kartenverlauf ---
+   Steht hier und nicht im Designer: Webflows Gradient-Editor kennt die
+   Kurzform "120% 70% at 50% -10%" nicht und schreibt sie beim Speichern
+   in ungültiges CSS um. Identische Formel wie FAQ- und Service-Cards.
+
+   background-image steht bewusst NICHT in der transition — CSS
+   interpoliert Verläufe auf der CPU und zeichnet die Karte über die
+   gesamte Übergangsdauer in jedem Frame neu. */
+.workflow-card {
+  --wf-angle: 0deg;
+  --wf-edge: 0;
+  --wf-dim: 1;
+
+  position: relative;  /* Bezugsrahmen der Ziffer. NICHT entfernen. */
+  isolation: isolate;
+  opacity: var(--wf-dim);
+  /* contain begrenzt Repaints auf die Karte: ändert sich innen etwas,
+     muss der Browser nicht die ganze Section neu bewerten. */
+  contain: paint;
+  background-image:
+    radial-gradient(120% 70% at 50% -10%, #FFFFFF0A, #FFFFFF00 60%),
+    linear-gradient(#111111, #0D0D0D);
+  transition: border-color 380ms ease;
+}
+.workflow-card.is-active {
+  background-image:
+    radial-gradient(120% 70% at 50% -10%, #FFFFFF1A, #FFFFFF00 62%),
+    linear-gradient(#141414, #0D0D0D);
+}
+
+/* --- Ziffer ---
+   ZENTRIERUNG: die Box wird MITTIG GESETZT (left:50% + translateX(-50%))
+   statt links/rechts aufgespannt und der Text darin zentriert.
+   Grund: bei 400-500px Schriftgrad ist die Ziffer BREITER als die Karte.
+   Sobald Inline-Inhalt seine Box ueberlaeuft, ist text-align:center keine
+   verlaessliche Zentrierung mehr. width:max-content legt die Box exakt um
+   die Ziffer, der translate zentriert diese Box geometrisch.
+
+   HOEHENLAGE: padding-bottom verkleinert die Flaeche, in der vertikal
+   zentriert wird — die Ziffer rutscht um die HAELFTE des Werts nach oben.
+
+   STRETCH — gemessene Ausgangslage (Konsole, 16.08.):
+   ungestreckte Box 414,7px, Karte innen 378px. Schon bei scaleX(1.5)
+   werden links und rechts je ~122px abgeschnitten. Ein hoeherer
+   scaleX-Wert liest sich deshalb als DICKERE STRICHE, nicht als breiter.
+   scaleY dagegen ist voll sichtbar.
+
+   Im Designer bleiben nur font-size, letter-spacing, color, font-family.
+   ACHTUNG: display/justify-content/align-items hier ohne Media Query —
+   Designer-Werte fuer genau diese Properties sind daher wirkungslos. */
+.workflow-numeral {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  right: auto;
+  width: max-content;
+  padding-bottom: 140px;        /* Höhenlage — siehe Kommentar oben */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 0;
+  margin: 0;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%) scaleX(2.1) scaleY(0.72);
+  transform-origin: center center;
+  transition: color 380ms ease;
+}
+.workflow-card.is-active .workflow-numeral { color: #202020; }
+
+/* --- BORDER GLOW ---
+   Der Winkel wird vom JS NUR auf der aktiven Karte gedreht. Vorher lief
+   das auf allen fünf gleichzeitig: ein Conic-Gradient hat keine
+   GPU-Beschleunigung, jede Winkeländerung ist ein voller CPU-Repaint. */
+.workflow-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;                 /* = Strichstärke */
+  pointer-events: none;
+  z-index: 4;
+  opacity: var(--wf-edge);
+  background: conic-gradient(
+    from var(--wf-angle),
+    #FFFFFF00 0deg,
+    #FFFFFF   26deg,
+    #DCEBFF   44deg,
+    #FFFFFF3D 96deg,
+    #FFFFFF08 180deg,
+    #FFFFFF3D 264deg,
+    #DCEBFF   316deg,
+    #FFFFFF   334deg,
+    #FFFFFF00 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+}
+
+/* Schein nach INNEN — ein äußerer Halo würde von overflow:hidden
+   auf der Card abgeschnitten, inset-Schatten nicht. */
+.workflow-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 4;
+  opacity: calc(var(--wf-edge) * 0.85);
+  box-shadow:
+    inset 0 0 26px -6px #DCEBFF3D,
+    inset 0 1px 0 #FFFFFF29;
+}
+
+
+/* ===================== WORKFLOW: SCROLL STACK (AB TABLET) ===================== */
+/* Was hier steht, kann der Designer nicht: nth-child-Regeln,
+   Pseudo-Elemente, contain/will-change und das Zuruecknehmen von
+   Head-Code-Regeln. Alles andere — inklusive Schlitzkante, Schatten und
+   Klebeposition des .workflow-aside — steht im Designer unter Tablet.
+
+   GEAENDERT 04.09. — TITEL-ABSTAND.
+   Hier stand vorher ein Navbar-Puffer auf .workflow-aside: padding-top
+   von nav-clear plus 16px (also 108px) und ein margin-top von minus
+   nav-clear (minus 92px). Der Puffer haelt den Aside-Text beim Kleben
+   unter der fixen Navbar — er wirkt aber IMMER, nicht nur im geklebten
+   Zustand. Im Ruhezustand sass der Text dadurch 108px unter der
+   Ueberschrift, waehrend Service und FAQ bei 48px lagen. Gemessen ueber
+   alle Breakpoints: der groesste Ausreisser der Seite.
+
+   Jetzt uebernimmt das der Sticky-Offset. Der Aside klebt im Designer bei
+   top:var(--nav-clear) statt bei top:0 und behaelt sein normales
+   padding-top von 16px. Die Eigenschaft top wirkt NUR im geklebten
+   Zustand, padding wirkt immer — damit ist beides entkoppelt.
+   .workflow-stage traegt die restlichen 32px (Designer, medium + tiny),
+   32 + 16 = 48px, identisch zu allen anderen Sections.
+
+   Nachgemessen, geklebter Zustand vorher und nachher identisch:
+   Aside-Oberkante 92px, Text 108px, erste Karte 295px, Luft dazwischen
+   40px. --wf-stick bleibt 295px, der Stapel sitzt also unveraendert.
+
+   WICHTIG fuer Block 42 im JS: --wf-stick wird als asideTop plus
+   Aside-Hoehe plus SLOT_OFFSET berechnet. Der asideTop-Summand ist dort
+   neu; ohne ihn laege die erste Karte 52px HINTER dem Aside. CSS und JS
+   gehoeren hier zusammen. */
+@media (max-width: 991px) {
+
+  /* will-change:transform macht den Track zum Containing Block seiner
+     Nachfahren, exakt wie ein echtes transform. Sticky-Kinder wuerden
+     sich dann auf den Track statt auf den Viewport beziehen. */
+  .workflow-track {
+    will-change: auto;
+    backface-visibility: visible;
+    /* Fallback. Den echten Wert schreibt das JS aus der gemessenen
+       Aside-Hoehe hierher — CSS und JS teilen sich diese eine Zahl. */
+    --wf-stick: 194px;
+  }
+
+  /* position:sticky steht auch im Designer, ist dort aber WIRKUNGSLOS:
+     der Block "WORKFLOW: CARDS" weiter oben setzt position:relative ohne
+     Media Query. Webflows Stylesheet laedt VOR dem Custom Head Code, und
+     bei gleicher Spezifitaet gewinnt die spaetere Regel — ein Media Query
+     erhoeht die Spezifitaet nicht. Deshalb muss sticky hier stehen.
+
+     ACHTUNG fuer Block 42 im JS: solange eine Karte klebt, liefert
+     offsetTop die GEKLEBTE Position, nicht die des Layouts. Das JS misst
+     deshalb ueber measureCardTops(), das position kurz auf static setzt. */
+  .workflow-card {
+    position: sticky;
+    top: var(--wf-stick);
+    transform-origin: top center;
+    /* contain:paint erzeugt ebenfalls einen Containing Block */
+    contain: none;
+    /* Deckkraft ist Desktop-Logik (Abdunkeln der Nachbarn im Track).
+       Im Stapel ist jede sichtbare Karte voll deckend. */
+    opacity: 1;
+
+    /* HOEHE = INHALT (Entscheidung Inan, 31.08.).
+       Vorher stand hier eine min()-Formel mit 100svh. Zwei Probleme:
+       100svh ist auf iOS nicht stabil (wandert mit der URL-Leiste), und
+       der Deckel schnitt auf kleinen Geraeten den CTA-Button ab. */
+    height: auto;
+  }
+
+  /* Der Track enthaelt ausschliesslich die fuenf Karten — nth-child
+     zaehlt hier also wirklich Karten. Der 12px-Versatz ist die
+     sichtbare Kante jeder verdeckten Karte und MUSS mit STEP im JS
+     uebereinstimmen. */
+  .workflow-card:nth-child(2) { top: calc(var(--wf-stick) + 12px); }
+  .workflow-card:nth-child(3) { top: calc(var(--wf-stick) + 24px); }
+  .workflow-card:nth-child(4) { top: calc(var(--wf-stick) + 36px); }
+  .workflow-card:nth-child(5) { top: calc(var(--wf-stick) + 48px); }
+
+  /* Innenschein aus: der gehoert zur aktiven Karte im horizontalen Track */
+  .workflow-card::after { opacity: 0; }
+
+  /* Chrome-Kante nur auf der obersten Karte des Stapels. */
+  .workflow-card::before { opacity: 0; }
+  .workflow-card.is-active::before {
+    opacity: 0.75;
+    transition: opacity 320ms ease;
+  }
+
+  /* --- ZIFFER: gestreckt und mittig in der Karte ---
+     Es bleiben genau die zwei Werte, die auf Mobile anders sind:
+     padding-bottom 0 = keine Hoehenverschiebung, die Flex-Zentrierung der
+     Basisregel greift wieder auf die volle Kartenhoehe (top:0/bottom:0).
+     translateX(-50%) MUSS vorne stehen bleiben, sonst wird der Versatz
+     mitskaliert und die Ziffer sitzt schief. */
+  .workflow-numeral {
+    padding-bottom: 0;
+    transform: translateX(-50%) scaleX(1.9) scaleY(0.70);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-stage { display: block; min-height: 0; overflow: visible; }
+  .workflow-track {
+    flex-direction: column;
+    transform: none !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .workflow-card {
+    position: relative;
+    top: auto;
+    width: 100%;
+    height: auto;
+    flex-basis: auto;
+    opacity: 1;
+    transform: none !important;
+    transition: none;
+  }
+  /* Nimmt die Designer-Werte der Schlitzkante zurueck */
+  .workflow-aside {
+    position: static;
+    transform: none;
+    width: 100%;
+    padding: 0 0 32px;
+    background-color: transparent;
+    box-shadow: none;
+  }
+  .workflow-mask,
+  .workflow-slot { display: none; }
+  .workflow-card::before,
+  .workflow-card::after { opacity: 0; }
+}
+
+/* ===================== SECTION: FAQ — HORIZONTALES AKKORDEON ===================== */
+
+/* Geschlossene Card = schmaler Spine. flex-grow ist der Animationswert. */
+.faq-card {
+  position: relative;
+  flex-grow: 1;
+  background:
+    radial-gradient(120% 70% at 50% -10%, #FFFFFF0F, #FFFFFF00 60%),
+    linear-gradient(#111111, #0D0D0D);
+  transition:
+    flex-grow 620ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 500ms ease;
+  overflow: clip;
+}
+
+.faq-card:focus-visible {
+  outline: 1px solid #C8C8C8;
+  outline-offset: 2px;
+}
+
+/* Chrome-Kante: oben hell, unten auslaufend. */
+.faq-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.6;
+  background: linear-gradient(
+    170deg,
+    #FFFFFF52 0%,
+    #FFFFFF1F 18%,
+    #FFFFFF0A 46%,
+    #FFFFFF17 82%,
+    #FFFFFF3D 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  transition: opacity 500ms ease;
+}
+
+.faq-content,
+.faq-label,
+.faq-title,
+.faq-text {
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+
+.faq-card.is-open {
+  flex-grow: 7;
+  background:
+    radial-gradient(120% 70% at 50% -10%, #FFFFFF1A, #FFFFFF00 62%),
+    linear-gradient(#141414, #0D0D0D);
+}
+.faq-card.is-open::before { opacity: 1; }
+
+/* Hover-Aufhellung nur auf echten Zeigergeraeten.
+   Ohne das Gate bleibt der Hover-Zustand auf Touch nach dem Tippen
+   kleben — die angetippte Card sieht dauerhaft anders aus als die
+   anderen, auch wenn sie laengst geschlossen ist. */
+@media (hover: hover) and (pointer: fine) {
+  .faq-card:not(.is-open):hover::before { opacity: 0.9; }
+}
+
+/* GEAENDERT 05.09. — LABEL-POSITION (4. Durchgang, final).
+   X-ACHSE (unveraendert seit letztem Durchgang): --faq-label-x wird per
+   JS (Block 70) EINMALIG aus der Breite einer GESCHLOSSENEN Card
+   berechnet, nie aus der eigenen — funktioniert, weil die Summe aller
+   flex-grow im Wrapper immer 14 ist, unabhaengig davon, WELCHE Card
+   offen ist. position:absolute + translateX(-50%) ignoriert zusaetzlich
+   das wechselnde padding-left der Card (is-open nutzt eine andere
+   Spacing-Variable).
+
+   Y-ACHSE, HIER KORRIGIERT: align-items:center hat den Text INNERHALB
+   der 100px-Box vertikal zentriert. Bei writing-mode:tb-rl haengt die
+   gerenderte Texthoehe aber von der Wortlaenge ab — "Baukasten" (9
+   Zeichen, ~69px) saß dadurch 15px unter der Kante, "Solo" (4 Zeichen,
+   ~29px) dagegen 35px. Gemessen auf Staging (Konsole, 05.09.): genau
+   dieser Versatz war der inkonsistente Abstand. Fix: align-items:
+   flex-start + fester padding-top (space-6/32px, selbes Spacing-Token
+   wie sonst im Design) — jedes Label startet jetzt an DERSELBEN Stelle,
+   unabhaengig von der Wortlaenge; nur wie weit es nach unten reicht,
+   variiert noch (unvermeidbar bei vertikaler Schrift). Laengstes Wort
+   (Baukasten, 69px) endet bei 32+69=101px — passt knapp unter den
+   100px-padding-top von .faq-content, keine Ueberlappung. */
+.faq-label {
+  position: absolute;
+  top: 0;
+  left: var(--faq-label-x, 70px);
+  transform: translateX(-50%);
+  z-index: 3;
+  height: 100px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 32px;
+  margin: 0;
+}
+
+.faq-label-txt {
+  margin: 0;
+  transition: color 400ms ease;
+}
+.faq-card.is-open .faq-label-txt {
+  color: #EDEDED;
+}
+
+/* Asymmetrisches Timing. Der Delay von 180ms ist beim OEFFNEN richtig
+   (erst Breite, dann Text). Symmetrisch galt er auch beim Schliessen —
+   der Text blieb 180ms stehen, waehrend die Card schon schrumpfte, und
+   wurde sichtbar zerquetscht. Basisregel = Schliessen, kurz, ohne Delay. */
+.faq-content {
+  position: relative;
+  z-index: 2;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  /* Reserviert den Platz des jetzt absolut positionierten Labels oben —
+     entspricht dessen Hoehe, damit Titel/Text nicht darunter starten. */
+  padding-top: 100px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+.faq-card.is-open .faq-content {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 420ms ease 180ms;
+}
+
+/* --- Gestapelt (Tablet und darunter): Hoehe statt Breite --- */
+@media (max-width: 991px) {
+  .faq-wrapper {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .faq-card {
+    height: auto;
+    min-height: 72px;
+    flex-grow: 0;
+    flex-basis: auto;
+    max-height: 72px;
+    transition:
+      max-height 620ms cubic-bezier(0.22, 1, 0.36, 1),
+      background 500ms ease;
+  }
+  .faq-card.is-open {
+    flex-grow: 0;
+    max-height: 460px;
+  }
+  .faq-content { min-width: 0; padding-top: 0; }
+
+  /* Ab hier stapelt statt wachsender Breite eine wachsende Hoehe — das
+     Absolute-Fix von oben ist eine Desktop-Loesung fuer die Breiten-
+     Problematik und muss hier vollstaendig zurueckgenommen werden, sonst
+     klebt das Label ueber dem gesamten gestapelten Kartenverlauf fest,
+     statt oben in der 72px-Leiste im normalen Fluss zu stehen. */
+  .faq-label {
+    position: relative;
+    top: auto;
+    left: auto;
+    transform: none;
+    height: auto;
+    padding-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .faq-card,
+  .faq-card::before,
+  .faq-content,
+  .faq-card.is-open .faq-content,
+  .faq-label-txt { transition: none; }
+}
+</style>
+
+<style>
+/* ===================== CONTACT: FLOATING LABEL INPUTS ===================== */
+
+.form-field-row,
+.form-field-row-email { position: relative; }
+
+/* Input: transparent, nur Unterkante */
+.form-field-row .contact-input,
+.form-field-row-email .contact-input {
+  background-color: transparent;
+  background-image: none;
+  border-radius: 0;
+  box-shadow: none;
+  -webkit-appearance: none;
+          appearance: none;
+}
+
+/* Kein blauer Fokus-Ring — Fokus zeigt die Chrome-Linie */
+.form-field-row .contact-input:focus,
+.form-field-row-email .contact-input:focus {
+  outline: none;
+  box-shadow: none;
+  border-bottom-color: #FFFFFF3D;
+}
+
+.form-field-row .contact-input::placeholder,
+.form-field-row-email .contact-input::placeholder { color: transparent; }
+
+/* Label schwebt hoch bei Fokus oder gefülltem Feld (.is-filled per JS) */
+.form-field-row .contact-label,
+.form-field-row-email .contact-label {
+  transition: 250ms cubic-bezier(0.22, 1, 0.36, 1) all;
+}
+.form-field-row .contact-input:focus ~ .contact-label,
+.form-field-row .contact-input.is-filled ~ .contact-label,
+.form-field-row-email .contact-input:focus ~ .contact-label,
+.form-field-row-email .contact-input.is-filled ~ .contact-label {
+  top: -16px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #C8C8C8;
+}
+
+/* Chrome-Linie wächst aus der Mitte */
+.form-field-row .contact-bar::before,
+.form-field-row .contact-bar::after,
+.form-field-row-email .contact-bar::before,
+.form-field-row-email .contact-bar::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  height: 1px;
+  width: 0;
+  transition: 400ms cubic-bezier(0.22, 1, 0.36, 1) width;
+}
+.form-field-row .contact-bar::before,
+.form-field-row-email .contact-bar::before {
+  left: 50%;
+  background: linear-gradient(90deg, #EDEDED 0%, #C8C8C8 60%, #FFFFFF29 100%);
+}
+.form-field-row .contact-bar::after,
+.form-field-row-email .contact-bar::after {
+  right: 50%;
+  background: linear-gradient(270deg, #EDEDED 0%, #C8C8C8 60%, #FFFFFF29 100%);
+}
+.form-field-row .contact-input:focus ~ .contact-bar::before,
+.form-field-row .contact-input:focus ~ .contact-bar::after,
+.form-field-row-email .contact-input:focus ~ .contact-bar::before,
+.form-field-row-email .contact-input:focus ~ .contact-bar::after { width: 50%; }
+
+/* Autofill: Chrome färbt die Felder sonst weiß */
+.form-field-row .contact-input:-webkit-autofill,
+.form-field-row .contact-input:-webkit-autofill:focus,
+.form-field-row-email .contact-input:-webkit-autofill,
+.form-field-row-email .contact-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #EDEDED;
+  -webkit-box-shadow: 0 0 0 1000px #080808 inset;
+  transition: background-color 9999s;
+}
+
+/* TOUCH-ZIELGROESSE: gemessen waren Name- und Mail-Feld 38px hoch,
+   die Footer-Links 19-20px. WCAG 2.5.8 (AA) verlangt 24px, komfortabel
+   sind 44px. Die Felder bekommen echte Hoehe, die Links vergroessern nur
+   ihre Trefferflaeche (padding), damit das Layout gleich bleibt. */
+@media (max-width: 991px) {
+  .form-field-row .contact-input,
+  .form-field-row-email .contact-input {
+    min-height: 44px;
+  }
+  .legal-link,
+  .kontakt-txt,
+  .impressum-txt,
+  .tiktok-txt,
+  .instagram-txt {
+    display: inline-block;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .form-field-row .contact-label,
+  .form-field-row-email .contact-label,
+  .form-field-row .contact-bar::before,
+  .form-field-row .contact-bar::after,
+  .form-field-row-email .contact-bar::before,
+  .form-field-row-email .contact-bar::after { transition: none; }
+}
+</style>
+
+<style>
+/* ===================== ABOUT: TITEL-STACK + WORT-REVEAL ===================== */
+/* Container versteckt, bis das JS Wörter zerlegt und Startzustände gesetzt hat */
+.fade-ready [data-reveal] { opacity: 0; }
+
+/* Stack ist exakt viewporthoch und wird selbst gepinnt (Desktop) bzw.
+   geklebt (Mobile, Block 50). Deshalb sitzt der Titel mittig, unabhängig
+   vom Section-Padding.
+
+   HOEHE: var(--vh-lock) statt 100svh. Gemessen am iPhone (31.08.):
+   min-height:100svh wandert live zwischen 637 und 737px, waehrend die
+   URL-Leiste faehrt. ScrollTrigger.config({ignoreMobileResize:true})
+   unterdrueckt das Remeasurement — der gepinnte Stack war dadurch am Ende
+   hoeher als der fuer ihn reservierte Platz. --vh-lock wird im Site-Head
+   EINMAL gesetzt und nur bei Breitenaenderung neu gemessen.
+   100svh bleibt als Fallback, falls das Inline-Script nicht laeuft. */
+[data-title-stack] {
+  display: grid;
+  place-items: center;
+  min-height: var(--vh-lock, 100svh);
+  perspective: 1000px;          /* Fluchtpunkt für das Kippen */
+  perspective-origin: 50% 50%;
+}
+[data-title-stack] > * {
+  grid-area: 1 / 1;             /* alle übereinander, gleiche Stelle */
+  margin: 0;
+  text-align: center;
+  backface-visibility: hidden;  /* verhindert Flackern beim Kippen */
+}
+
+/* Abstand Titel -> Text. Stellschraube für den Rhythmus der Section. */
+[data-reveal="text"] { margin-top: 15vh; }
+
+/* Jedes Wort ein eigener Layer. inline-block, weil transform
+   auf reinen inline-Elementen nicht greift. */
+.reveal-word {
+  display: inline-block;
+  white-space: pre-wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Stack auflösen — drei Titel übereinander wären sonst unlesbar */
+  [data-title-stack] { display: block; min-height: 0; }
+  [data-title-stack] > * { grid-area: auto; }
+  [data-reveal="text"] { margin-top: 0; }
+  .fade-ready [data-reveal] { opacity: 1 !important; }
+  .reveal-word {
+    opacity: 1 !important;
+    filter: none !important;
+    transform: none !important;
+  }
+}
+</style>
+
+<style>
+/* ===================== SECTION: SERVICE — BENTO VIDEO ===================== */
+
+/* Webflows Embed-Wrapper muss die volle Kartenhöhe durchreichen,
+   sonst kollabiert das Video auf Inhaltshöhe. */
+[data-bento-video] .w-embed {
+  width: 100%;
+  height: 100%;
+}
+
+/* Das Video füllt die Karte aus. aspect-ratio 16/9, overflow:hidden
+   und der Radius kommen aus der Designer-Klasse .service-vid. */
+.bento-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Dunkle Fläche, solange nichts geladen ist — kein weißes Aufblitzen */
+  background-color: #0D0D0D;
+}
+
+/* ===================== SECTION: SERVICE — LICHT VOM VIDEO ===================== */
+
+/* Ruhewerte. Farbe und Staerke getrennt, damit der Verlauf unten
+   pro Stop eine eigene Deckkraft bekommen kann.
+   Alle vier werden zur Laufzeit vom Video-Sampling ueberschrieben. */
+.service-card {
+  --spill-rgb: 176, 205, 245;  /* Lichtfarbe */
+  --spill-a: 0.13;             /* Lichtstaerke */
+  --ray-rot: 0deg;             /* Drift der Lichtstrahlen */
+  --ray-gain: 1;               /* Atmung der Strahlen-Intensitaet */
+}
+
+/* Nur der Stretch steht hier — Webflows Transform-Panel kann keinen
+   reinen horizontalen Stretch (gleicher Grund wie bei .workflow-numeral).
+   Schriftgroesse, Position und Randabstand gehoeren in den Designer. */
+@media (min-width: 992px) {
+  .service-card-index.is-left  { transform: scaleX(5); transform-origin: 0% 50%; }
+  .service-card-index.is-right { transform: scaleX(5); transform-origin: 100% 50%; }
+}
+
+@media (max-width: 991px) {
+  .service-card-index.is-left  { transform: scaleX(1.4); transform-origin: 0% 50%; }
+  .service-card-index.is-right { transform: scaleX(1.4); transform-origin: 100% 50%; }
+
+  /* Die beiden Desktop-Karten sind unter 992px auf Hoehe 0 gefahren
+     (gemessen: height 0, display:flex, overflow:hidden). Sichtbar sind
+     sie damit nicht — im Accessibility-Tree und fuer Suchmaschinen aber
+     schon: ein Screenreader liest beide Texte vor, ohne dass etwas da
+     ist. content-visibility nimmt sie sauber heraus, ohne die
+     bestehende Hoehen-Mechanik anzufassen.
+     ANMERKUNG: dass auf Mobile nur EINE der drei Service-Karten
+     erscheint, ist eine inhaltliche Frage, keine technische. */
+  .service-card.is-left,
+  .service-card.is-right {
+    content-visibility: hidden;
+  }
+}
+
+/* Grundschein von unten. Grosse Ausdehnung (200% 150%) plus sieben Stops:
+   das Licht reicht weit in die Karte hinein und faellt als weiche Kurve ab
+   statt als gerade Linie. */
+.service-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    200% 150% at 50% 132%,
+    rgba(var(--spill-rgb), var(--spill-a))                  0%,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.70))    18%,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.45))    34%,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.26))    50%,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.13))    66%,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.05))    82%,
+    rgba(var(--spill-rgb), 0)                             100%
+  );
+}
+
+/* Lichtstrahlen — bewusst KEIN Wechsel zwischen Strahl und Nichts.
+   Der niedrigste Wert (0.05) ist ungleich null, der hoechste nur 0.16:
+   dadurch modulieren die Strahlen einen durchgehenden Schein, statt als
+   einzelne Streifen zu lesen. Periode 68deg = nur wenige, sehr breite
+   Baender. Bewegt wird der Winkel, NICHT das Element — ein transform
+   wuerde die Maske mitdrehen. */
+.service-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: repeating-conic-gradient(
+    from calc(174deg + var(--ray-rot)) at 50% 132%,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.05 * var(--ray-gain)))   0deg,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.10 * var(--ray-gain)))  10deg,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.2 * var(--ray-gain)))  20deg,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.10 * var(--ray-gain)))  30deg,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.05 * var(--ray-gain)))  40deg,
+    rgba(var(--spill-rgb), calc(var(--spill-a) * 0.05 * var(--ray-gain)))  68deg
+  );
+  /* Blendet die Strahlen nach oben aus, damit sie unten ansetzen
+     und oben in nichts uebergehen. */
+  -webkit-mask-image: radial-gradient(140% 110% at 50% 132%, #000 0%, transparent 66%);
+          mask-image: radial-gradient(140% 110% at 50% 132%, #000 0%, transparent 66%);
+}
+</style>
