@@ -1058,10 +1058,10 @@
       var tops = measureCardTops();
       var heights = cards.map(function (c) { return c.offsetHeight; });
 
-      /* 6. Groesster Fussabdruck. Der Ausstieg des Stapels beginnt mit
+            /* 6. Groesster Fussabdruck. Der Ausstieg des Stapels beginnt mit
          der Karte, deren (Klebeposition + Hoehe) am groessten ist —
          nicht zwangslaeufig die letzte, die Karten sind unterschiedlich
-         hoch. */
+         hoch. Aside und Stapel loesen exakt an diesem Punkt gemeinsam. */
       var foot = 0;
       heights.forEach(function (h, i) {
         foot = Math.max(foot, base + i * STEP + h);
@@ -1070,9 +1070,6 @@
       /* 7. Aside auf denselben Fussabdruck bringen und die Extrahoehe am
          Track wieder abziehen. Siehe CSS-Block "AUSSTIEG". */
       var hold = foot - navClear;
-      root.style.setProperty('--wf-visual', visual + 'px');
-      root.style.setProperty('--wf-hold', hold + 'px');
-      track.style.marginTop = (baseMT - (hold - visual)) + 'px';
 
       /* 8. Marken. Erst JETZT lesen — margin-top wurde eben geschrieben.
          Rechnerisch hebt es sich auf, gemessen ist aber gemessen. */
