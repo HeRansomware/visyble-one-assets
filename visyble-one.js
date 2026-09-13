@@ -970,7 +970,7 @@
     onFonts(boot);
   })();
 
-     /* ===================================================================
+       /* ===================================================================
      42  WORKFLOW — SCROLL STACK (AB TABLET)
      Das Stapeln macht CSS ueber position:sticky. Hier laeuft nur, was
      sticky nicht kann: Skalierung, aktive Karte, Fortschrittslinie —
@@ -1132,7 +1132,21 @@
       if (REDUCE || !mq.matches) return;
       measure();
       master = ScrollTrigger.create({
-        trigger:
+        trigger: track,
+        start: 'top bottom',
+        end: 'bottom top',
+        invalidateOnRefresh: true,
+        refreshPriority: 2,
+        onRefresh: function (s) { measure(); active = -1; paint(s.scroll()); },
+        onUpdate:  function (s) { paint(s.scroll()); }
+      });
+      active = -1;
+      paint(master.scroll());
+    }
+
+    var mq = onBreakpoint('(max-width: 991px)', boot);
+    onFonts(boot);
+  })();
 
   /* ===================================================================
      50  ABOUT — TITEL-STACK + WORT-REVEAL
