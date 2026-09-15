@@ -155,31 +155,30 @@
      will-change wird nach der Animation zurueckgenommen: sonst bleiben
      Hero und alle Section-Header dauerhaft eigene Compositing-Ebenen.
 
-     GEAENDERT 15.09. — HERO-CTA:
-     Werte auf Apples Spring-Presets abgebildet. GSAP hat keinen Spring,
-     back.out(s) laesst sich aber exakt darauf rechnen:
-     Overshoot = 4s³/(27(s+1)²).
-       back.out(0.5) =  0.8 %  entspricht .snappy (bounce 0.15)
-       back.out(0.9) =  3.0 %  <- hier verwendet
-       back.out(1.1) =  4.5 %  entspricht .bouncy (bounce 0.30)
-       back.out(1.7) = 10.0 %  GSAP-Default, von Apple nie verwendet
-     Apples duration ist die PERZEPTUELLE Dauer, die reale Settling-Zeit
-     liegt darueber — 0.5s dort sind ~0.58s als GSAP-Dauer.
+     GEAENDERT 15.09. — HERO-CTA, ZWEITER DURCHGANG:
+     Der scale-Pop mit back.out ist RAUS. Begruendung, nicht Geschmack:
+     Apple setzt Springs auf REAKTIONEN — Tap, Toggle, Popover — also
+     dort, wo der Nutzer etwas ausgeloest hat und die Oberflaeche
+     antwortet. Ein Element, das beim Laden von selbst heranzoomt und
+     nachfedert, ist die Keynote-Geste, nicht die iOS-Geste. Das laesst
+     sich ueber den Overshoot-Wert nicht retten: 3 % oder 10 % aendern
+     die Staerke, nicht die Lesart.
+     Dazu kommt ein technisches Argument: der Button skaliert samt Text.
+     Der wird einmal gerastert und dann hochgezogen — auf Mobile, wo die
+     CTAs breit sind, ist genau das die sichtbare Unschaerfe.
 
-     Drei Regeln, die den Unterschied machen:
-     1. Bounce NUR auf scale. Overshoot auf y liest sich als Wippen,
-        Apple bouncet Groesse, nie Position.
-     2. opacity laeuft kuerzer und OHNE Bounce (0.3s power2.out). Der
-        Button ist sichtbar, bevor der Spring ausgelaufen ist.
-     3. Mobile bekommt eigene Werte: die CTAs sind dort breiter, gleicher
-        Faktor = mehr Pixelbewegung und mehr Textunschaerfe waehrend des
-        Skalierens. Deshalb Start bei 0.96 und flacherer Overshoot.
+     Fuer AUFTRITTE verwendet Apple opacity plus einen sehr kurzen
+     Positionsversatz, ohne Overshoot. Genau das, was Hero und Header
+     hier schon tun — die CTAs laufen jetzt in derselben Familie, nur
+     leicht versetzt, statt eine eigene Show zu machen.
 
-     VORAUSSETZUNG: .button-primary und .pricing-card-btn duerfen KEIN
-     transition-property:all tragen (im Designer am 15.09. auf die
-     Hover-Properties eingegrenzt). Mit "all" interpoliert der Browser
-     jeden GSAP-Frame ein zweites Mal ueber 800ms bzw. 220ms — die Kurve
-     hier waere wirkungslos und die beiden Buttons kaemen versetzt an.
+     Die scale-Geste ist damit FREI fuer das, wofuer sie gedacht ist:
+     Tap-Feedback auf :active. Separater Schritt, noch nicht gebaut.
+
+     VORAUSSETZUNG unveraendert: .button-primary und .pricing-card-btn
+     duerfen KEIN transition-property:all tragen (im Designer am 15.09.
+     auf die Hover-Properties eingegrenzt). Mit "all" interpoliert der
+     Browser jeden GSAP-Frame ein zweites Mal ueber 800ms bzw. 220ms.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -189,14 +188,11 @@
     if (REDUCE) return;
 
     /* ---------- Stellschrauben: Hero-CTA ---------- */
-    var CTA_DELAY      = 0.45,  // nachdem die Hero-Zeilen stehen
-        CTA_STAGGER    = 0.05,  // Apple staffelt kaum
-        CTA_FADE       = 0.3,   // Dauer opacity
-        CTA_POP        = 0.58,  // Dauer scale (= Apple 0.5s perzeptuell)
-        CTA_FROM_WIDE  = 0.94,
-        CTA_FROM_NARROW= 0.96,
-        CTA_EASE_WIDE  = 'back.out(0.9)',
-        CTA_EASE_NARROW= 'back.out(0.7)';
+    var CTA_DELAY   = 0.40,   // nachdem die Hero-Zeilen stehen
+        CTA_STAGGER = 0.06,
+        CTA_FADE    = 0.5,    // opacity — kuerzer als die Bewegung
+        CTA_MOVE    = 0.9,    // y, laeuft weich aus
+        CTA_Y       = 8;      // Weg in px. Mehr liest sich als "faehrt ein"
 
     function releaseWillChange() {
       this.targets().forEach(function (el) {
@@ -214,29 +210,21 @@
             stagger: 0.07, delay: 0.15, onComplete: releaseWillChange });
       }
 
-      /* Hero-CTAs: Apple-Pop. Zwei getrennte Tweens, siehe Regel 2 oben —
-         ein einzelner Tween muesste opacity und scale dieselbe Kurve und
+      /* Hero-CTAs. Zwei Tweens, weil opacity kuerzer laufen muss als die
+         Bewegung — der Button steht sichtbar, waehrend er die letzten
+         Pixel noch zurueckleg. Ein einzelner Tween muesste beiden
          dieselbe Dauer aufzwingen. */
       var cta = qsa('[data-fade="cta"]');
       if (cta.length) {
-        var narrow = mm('(max-width: 991px)').matches;
-
         gsap.fromTo(cta,
           { opacity: 0 },
           { opacity: 1, duration: CTA_FADE, ease: 'power2.out',
             stagger: CTA_STAGGER, delay: CTA_DELAY });
 
         gsap.fromTo(cta,
-          { scale: narrow ? CTA_FROM_NARROW : CTA_FROM_WIDE },
-          { scale: 1,
-            duration: CTA_POP,
-            ease: narrow ? CTA_EASE_NARROW : CTA_EASE_WIDE,
-            stagger: CTA_STAGGER,
-            delay: CTA_DELAY,
-            /* Ohne expliziten Origin nimmt GSAP den Elementmittelpunkt —
-               bei flex:1 1 0% aendert sich der aber mit der Spaltenbreite.
-               Festschreiben, sonst wandert der Pop je Breakpoint. */
-            transformOrigin: '50% 50%',
+          { y: CTA_Y },
+          { y: 0, duration: CTA_MOVE, ease: 'expo.out',
+            stagger: CTA_STAGGER, delay: CTA_DELAY,
             onComplete: releaseWillChange });
       }
 
