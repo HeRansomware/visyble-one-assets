@@ -970,7 +970,7 @@
     onFonts(boot);
   })();
 
-         /* ===================================================================
+       /* ===================================================================
      42  WORKFLOW — SCROLL STACK (AB TABLET)
      Das Stapeln macht CSS ueber position:sticky. Hier laeuft alles, was
      sticky nicht kann: die GEOMETRIE (Klebepositionen, Haltehoehe des
@@ -993,11 +993,20 @@
      — allein dieser Fussabdruck entscheidet ueber den Zeitpunkt. Das Aside
      ist ~190px hoch, der Stapel ~680px: ohne Ausgleich klebt das Aside
      rund 490px laenger und der Stapel faehrt ueber das noch klebende Aside
-     hinweg. Deshalb bekommt die BOX des Aside exakt den groessten
-     Fussabdruck der Karten. Sichtbar bleiben --wf-visual Pixel, weil
-     Flaeche und Schatten im CSS auf dem ::before liegen. Die Extrahoehe
-     wuerde den Track nach unten druecken, deshalb per margin-top wieder
-     abgezogen — die Sectionhoehe bleibt unveraendert.
+     hinweg. Deshalb bekommt die BOX des Aside exakt den Fussabdruck der
+     LETZTEN Karte (die liegt am Ende oben im Stapel) plus RELEASE_LEAD.
+     Sichtbar bleiben --wf-visual Pixel, weil Flaeche und Schatten im CSS
+     auf dem ::before liegen. Die Extrahoehe wuerde den Track nach unten
+     druecken, deshalb per margin-top wieder abgezogen — die Sectionhoehe
+     bleibt unveraendert.
+
+     WARUM RELEASE_LEAD:
+     Stage und Track enden nicht exakt an derselben Y-Position — gemessen
+     (14.09.): die letzte Karte loeste sich VOR dem Aside, war kurz
+     oberhalb des Aside / hinter der Navbar sichtbar. RELEASE_LEAD
+     vergroessert die Haltehoehe des Aside um einen festen Betrag, damit
+     es fruehstens gleichzeitig mit der letzten Karte loest. EMPIRISCH,
+     auf Staging nachjustieren.
 
      WARUM GEMESSEN STATT FESTE ZAHLEN:
      Aside- und Kartenhoehen sind inhalts- UND breitenabhaengig, der Text
@@ -1010,33 +1019,40 @@
      Effekt springt. Der Track klebt nicht, und offsetTop bleibt bei sticky
      unveraendert.
      =================================================================== */
-  
   (function () {
     if (!GS || !WF || WF.cards.length < 2) return;
 
     var track = WF.track, cards = WF.cards, fill = WF.fill, aside = WF.aside;
 
     /* ---------- Stellschrauben ---------- */
-    var MIN_SCALE = 0.93,
-        STEP = 12,
-        SLOT_OFFSET = 40,
-        HANDOVER = 0.45,
-        NAV_GAP = 16,
-        VISUAL_FALLBACK = 187,
-        /* Ausgleich, weil Stage und Track nicht exakt an derselben Y-Position
-           enden — gemessen: die letzte Karte loeste sich VOR dem Aside, war
-           kurz oberhalb des Aside/hinter der Navbar sichtbar. Vergroessert die
-           Haltehoehe, damit das Aside frueher/synchron mit der letzten Karte
-           loest. EMPIRISCH, auf Staging nachjustieren. */
-        RELEASE_LEAD = 40;
+    var MIN_SCALE = 0.93,  // Endgroesse einer verdeckten Karte
+        STEP = 12,         // sichtbare Kante je Karte
+        SLOT_OFFSET = 40,  /* Abstand Aside-Unterkante -> Klebeposition Karte 1.
+                              Der Aside-Schatten reicht rund 22px nach unten;
+                              klebt der Stapel innerhalb dieser Reichweite,
+                              liegt der Schatten DAUERHAFT auf Karte 1 und
+                              liest sich nicht als Durchfahrt. Bei 40px faellt
+                              er ins Leere. */
+        HANDOVER = 0.45,   /* Anteil der Strecke, um den der Wechsel der
+                              aktiven Karte vorgezogen wird. 0 = erst wenn die
+                              neue Karte klebt — dann ist die alte aber schon
+                              groesstenteils verdeckt. */
+        NAV_GAP = 16,      // Luft zwischen Navbar-Unterkante und Aside-Text
+        VISUAL_FALLBACK = 187,  // falls das Aside nicht messbar ist
+        RELEASE_LEAD = 40; // siehe Kommentar oben, auf Staging nachjustieren
 
     var master = null, marks = [], switchMarks = [], tops = [];
     var active = -1, prevScale = [], prevFill = -1, booted = false;
 
+    /* ---------- Eigene Schreibwerte zuruecknehmen ----------
+       MUSS vor jeder Messung laufen: sonst misst der naechste Durchgang die
+       Haltehoehe des vorigen mit und der Wert laeuft auf. Raeumt auch beim
+       Wechsel auf Desktop auf, sonst bleiben die Mobile-Inline-Werte stehen
+       und der horizontale Track aus Block 41 rechnet gegen sie an. */
     function clearGeometry() {
       cards.forEach(function (c) { c.style.removeProperty('top'); });
       track.style.removeProperty('margin-top');
-      track.style.removeProperty('--wf-stick');
+      track.style.removeProperty('--wf-stick');   // Altlast der Vorfassung
       if (aside) {
         aside.style.removeProperty('height');
         aside.style.removeProperty('--wf-visual');
@@ -1045,16 +1061,27 @@
       }
     }
 
+    /* ---------- GEOMETRIE SCHREIBEN ----------
+       Aendert das Layout, laeuft deshalb NIE im onRefresh eines Triggers —
+       sonst rechnet ScrollTrigger auf Werten, die waehrend seiner eigenen
+       Messung noch wandern. */
     function layout() {
       clearGeometry();
 
+      /* Navbar ist position:fixed und pro Breakpoint unterschiedlich hoch
+         (Padding 14/12/10px). Muss VOR der Aside-Messung laufen: --nav-clear
+         ist die Klebeposition des Aside im Designer. */
       var navEl = qs('.navbar-logo-left');
       var navClear = Math.round(
         (navEl ? navEl.getBoundingClientRect().height : 56) + NAV_GAP);
       document.documentElement.style.setProperty('--nav-clear', navClear + 'px');
 
+      // Designer-Abstand des Tracks, bevor wir ihn ueberschreiben
       var baseMT = parseFloat(getComputedStyle(track).marginTop) || 0;
 
+      /* Sichtbare Aside-Hoehe. height:auto wird INLINE erzwungen, nicht nur
+         zurueckgesetzt: der Designer-Fallback von 586px wuerde sonst als
+         "sichtbare Hoehe" durchgehen und die ganze Rechnung sprengen. */
       var visual = VISUAL_FALLBACK;
       if (aside) {
         aside.style.height = 'auto';
@@ -1063,13 +1090,19 @@
       }
 
       var base = navClear + visual + SLOT_OFFSET;
+
+      // Erst alle Hoehen lesen, dann alle tops schreiben — sonst erzwingt
+      // jedes Schreiben zwischendurch ein eigenes Layout.
       var heights = cards.map(function (c) { return c.offsetHeight; });
 
       var foot = 0;
       tops = cards.map(function (c, i) {
         var t = base + i * STEP;
         c.style.top = t + 'px';
-        foot = t + heights[i];   // massgeblich: letzte Karte
+        /* Massgeblich ist die LETZTE Karte, nicht das Maximum ueber alle.
+           Sie liegt am Ende oben im Stapel — loest das Aside frueher als
+           sie, schiebt sie sich zwischen Navbar und Aside hervor. */
+        foot = t + heights[i];
         return t;
       });
 
@@ -1079,11 +1112,22 @@
         aside.style.height = hold + 'px';
         track.style.marginTop = (baseMT - (hold - visual)) + 'px';
 
+        /* Die Blende verlaengert die schwarze Flaeche nach unten (das
+           clip-path des Aside laesst davon 60px durch). Sie haengt im
+           Designer an top:100% — das war richtig, solange die Box so hoch
+           war wie die sichtbare Flaeche. Mit Haltehoehe saesse sie mitten
+           im Stapel und wuerde Karten verdecken. Deshalb an --wf-visual
+           gekoppelt. */
         var shield = qs('.workflow-aside-shield', aside);
         if (shield) shield.style.top = visual + 'px';
       }
     }
 
+    /* ---------- MESSEN ----------
+       Reines Lesen, laeuft im onRefresh. marks kommen aus den TATSAECHLICH
+       gesetzten tops, nicht aus einer zweiten Rechnung — genau diese
+       Doppelrechnung lag in der Vorfassung um ~300px daneben, sobald die
+       Haltehoehe am Aside stand. */
     function measure() {
       var top = track.getBoundingClientRect().top +
                 (window.scrollY || window.pageYOffset);
@@ -1099,12 +1143,17 @@
       prevFill = -1;
     }
 
+    /* ---------- Zeichnen ---------- */
     function paint(y) {
       var idx = 0;
 
       for (var i = 0; i < cards.length; i++) {
         if (y >= switchMarks[i]) idx = i;
 
+        /* Karte i schrumpft genau auf der Strecke, auf der Karte i+1
+           heranrueckt und sie zudeckt — sonst faellt sie sichtbar ins Leere,
+           bevor etwas drueberliegt. Bewusst an marks, NICHT an switchMarks:
+           die Hervorhebung darf vorlaufen, die Geometrie nicht. */
         var s = 1;
         if (i < cards.length - 1) {
           var span = marks[i + 1] - marks[i];
@@ -1119,6 +1168,8 @@
         }
       }
 
+      // scaleX statt width: width ist eine Layout-Eigenschaft und wuerde die
+      // Aside-Spalte in jedem Frame neu berechnen. scaleX laeuft im Compositor.
       if (fill) {
         var total = marks[marks.length - 1] - marks[0];
         var f = total > 0 ? (y - marks[0]) / total : 0;
@@ -1133,6 +1184,7 @@
       if (idx !== active) { active = idx; WF.setActive(idx); }
     }
 
+    /* ---------- Auf- und Abbauen ---------- */
     function kill() {
       if (master) { master.kill(); master = null; }
       active = -1;
@@ -1165,13 +1217,20 @@
       active = -1;
       paint(master.scroll());
 
+      /* Beim ERSTEN Lauf kein eigener Refresh: Block 99 macht ihn ohnehin,
+         und zwei Refreshes bei laufendem About-Pin sind selbst eine
+         Sprungquelle. Jeder spaetere Lauf (Breakpoint, Rotation) braucht
+         ihn — layout() hat die Sectionhoehe veraendert. */
       if (booted) ScrollTrigger.refresh();
       booted = true;
     }
 
     var mq = onBreakpoint('(max-width: 991px)', boot);
-    onFonts(boot);
+    onFonts(boot);   // Schriften aendern Textumbruch und damit jede Hoehe
 
+    /* Nur bei BREITENaenderung neu aufbauen. Auf Touch aendert das Ein- und
+       Ausfahren der URL-Leiste staendig die Hoehe — eine Neumessung dort
+       waere ein Sprung mitten im Scrollen. */
     var lastW = window.innerWidth;
     window.addEventListener('resize', function () {
       if (window.innerWidth === lastW) return;
