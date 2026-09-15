@@ -149,36 +149,37 @@
      Inline-Script im Head sofort setzt. Faellt JS aus, wird die Klasse
      nie gesetzt und nichts ist unsichtbar — kein Blackout-Risiko.
 
-     Hero und Section-Header: Apple-Stil statt "Hochfahren". Kuerzerer
-     Weg (10px statt 28px), expo.out statt power3.out — die Bewegung
-     endet fast unmerklich statt sichtbar auszurollen. Trigger frueher
-     (top 92%), damit nichts mehr "aufploppt", wenn es laengst im Bild
-     ist. will-change wird nach der Animation zurueckgenommen: vorher
-     blieben Hero und alle Section-Header dauerhaft als eigene
-     Compositing-Ebene bestehen.
+     Apple-Stil statt "Hochfahren". Kurzer Weg (10px), expo.out — die
+     Bewegung endet fast unmerklich statt sichtbar auszurollen. Trigger
+     frueh (top 92%), damit nichts aufploppt, was laengst im Bild ist.
+     will-change wird nach der Animation zurueckgenommen: sonst bleiben
+     Hero und alle Section-Header dauerhaft eigene Compositing-Ebenen.
 
-     CTA-BUTTONS — SCALE-BOUNCE:
-     [data-fade="cta"] fehlte hier komplett. Das CSS setzt diese
-     Elemente auf opacity:0, ohne Handler zog sie nie jemand wieder
-     hoch — beide Hero-Buttons blieben dauerhaft unsichtbar.
+     GEAENDERT 15.09. — HERO-CTA:
+     Werte auf Apples Spring-Presets abgebildet. GSAP hat keinen Spring,
+     back.out(s) laesst sich aber exakt darauf rechnen:
+     Overshoot = 4s³/(27(s+1)²).
+       back.out(0.5) =  0.8 %  entspricht .snappy (bounce 0.15)
+       back.out(0.9) =  3.0 %  <- hier verwendet
+       back.out(1.1) =  4.5 %  entspricht .bouncy (bounce 0.30)
+       back.out(1.7) = 10.0 %  GSAP-Default, von Apple nie verwendet
+     Apples duration ist die PERZEPTUELLE Dauer, die reale Settling-Zeit
+     liegt darueber — 0.5s dort sind ~0.58s als GSAP-Dauer.
 
-     Bewusst KEIN Fade-von-unten wie Hero/Header und bewusst KEIN
-     back.out(): dort ist der Ueberschwinger ein Nebenprodukt der
-     Ease-Kurve und nicht direkt steuerbar. Hier zwei explizite
-     Schritte — hoch auf PEAK, zurueck auf 1.
+     Drei Regeln, die den Unterschied machen:
+     1. Bounce NUR auf scale. Overshoot auf y liest sich als Wippen,
+        Apple bouncet Groesse, nie Position.
+     2. opacity laeuft kuerzer und OHNE Bounce (0.3s power2.out). Der
+        Button ist sichtbar, bevor der Spring ausgelaufen ist.
+     3. Mobile bekommt eigene Werte: die CTAs sind dort breiter, gleicher
+        Faktor = mehr Pixelbewegung und mehr Textunschaerfe waehrend des
+        Skalierens. Deshalb Start bei 0.96 und flacherer Overshoot.
 
-     PEAK-Herleitung: Apples Standard-Spring ist response 0.5 /
-     dampingFraction 0.825. Der Ueberschwinger eines gedaempften
-     Federsystems ist e^(-pi*z/sqrt(1-z^2)) — bei z=0.825 sind das
-     1%, also unsichtbar. Der sichtbare Apple-Pop entspricht z~0.6-0.7,
-     das sind 5-9% Ueberschwinger. Daher PEAK 1.06.
-
-     KEIN stagger: die Buttons sollen als Paar kommen. Versetzt liest
-     es sich wie ein Ladefehler, nicht wie Absicht.
-
-     clearProps am Ende ist Pflicht: sonst bleibt eine Inline-
-     transform:scale(1) stehen, die per Inline-Spezifitaet jede
-     spaetere Hover-Transform auf dem Button blockiert.
+     VORAUSSETZUNG: .button-primary und .pricing-card-btn duerfen KEIN
+     transition-property:all tragen (im Designer am 15.09. auf die
+     Hover-Properties eingegrenzt). Mit "all" interpoliert der Browser
+     jeden GSAP-Frame ein zweites Mal ueber 800ms bzw. 220ms — die Kurve
+     hier waere wirkungslos und die beiden Buttons kaemen versetzt an.
      =================================================================== */
   (function () {
     if (!GS) {
@@ -187,15 +188,20 @@
     }
     if (REDUCE) return;
 
-    /* ---------- Stellschrauben: CTA-Bounce ---------- */
-    var CTA_FROM  = 0.8,    // Startgroesse
-        CTA_PEAK  = 1.06,   // Ueberschwinger, siehe Herleitung oben
-        CTA_UP    = 0.42,   // Dauer Start -> Peak
-        CTA_BACK  = 0.24,   // Dauer Peak -> 1
-        CTA_DELAY = 0.4;    // Nachlauf hinter der Headline
+    /* ---------- Stellschrauben: Hero-CTA ---------- */
+    var CTA_DELAY      = 0.45,  // nachdem die Hero-Zeilen stehen
+        CTA_STAGGER    = 0.05,  // Apple staffelt kaum
+        CTA_FADE       = 0.3,   // Dauer opacity
+        CTA_POP        = 0.58,  // Dauer scale (= Apple 0.5s perzeptuell)
+        CTA_FROM_WIDE  = 0.94,
+        CTA_FROM_NARROW= 0.96,
+        CTA_EASE_WIDE  = 'back.out(0.9)',
+        CTA_EASE_NARROW= 'back.out(0.7)';
 
-    function releaseWillChange(targets) {
-      targets.forEach(function (el) { el.style.willChange = 'auto'; });
+    function releaseWillChange() {
+      this.targets().forEach(function (el) {
+        el.style.willChange = 'auto';
+      });
     }
 
     onFonts(function () {
@@ -205,25 +211,33 @@
         gsap.fromTo(hero,
           { opacity: 0, y: 10 },
           { opacity: 1, y: 0, duration: 1.4, ease: 'expo.out',
-            stagger: 0.07, delay: 0.15,
-            onComplete: function () { releaseWillChange(this.targets()); } });
+            stagger: 0.07, delay: 0.15, onComplete: releaseWillChange });
       }
 
-      // Hero-CTA-Buttons: Scale-Bounce, beide gleichzeitig
+      /* Hero-CTAs: Apple-Pop. Zwei getrennte Tweens, siehe Regel 2 oben —
+         ein einzelner Tween muesste opacity und scale dieselbe Kurve und
+         dieselbe Dauer aufzwingen. */
       var cta = qsa('[data-fade="cta"]');
       if (cta.length) {
-        gsap.timeline({ delay: CTA_DELAY })
-          .fromTo(cta,
-            { opacity: 0, scale: CTA_FROM },
-            { opacity: 1, scale: CTA_PEAK,
-              duration: CTA_UP, ease: 'power2.out' })
-          .to(cta,
-            { scale: 1, duration: CTA_BACK, ease: 'power2.inOut',
-              onComplete: function () {
-                releaseWillChange(cta);
-                // Inline-transform raeumen, sonst blockiert sie Hover
-                gsap.set(cta, { clearProps: 'transform' });
-              } });
+        var narrow = mm('(max-width: 991px)').matches;
+
+        gsap.fromTo(cta,
+          { opacity: 0 },
+          { opacity: 1, duration: CTA_FADE, ease: 'power2.out',
+            stagger: CTA_STAGGER, delay: CTA_DELAY });
+
+        gsap.fromTo(cta,
+          { scale: narrow ? CTA_FROM_NARROW : CTA_FROM_WIDE },
+          { scale: 1,
+            duration: CTA_POP,
+            ease: narrow ? CTA_EASE_NARROW : CTA_EASE_WIDE,
+            stagger: CTA_STAGGER,
+            delay: CTA_DELAY,
+            /* Ohne expliziten Origin nimmt GSAP den Elementmittelpunkt —
+               bei flex:1 1 0% aendert sich der aber mit der Spaltenbreite.
+               Festschreiben, sonst wandert der Pop je Breakpoint. */
+            transformOrigin: '50% 50%',
+            onComplete: releaseWillChange });
       }
 
       // Section-Header: direkte Kinder staffeln (Label -> Titel)
@@ -231,7 +245,7 @@
         gsap.fromTo(header.children,
           { opacity: 0, y: 10 },
           { opacity: 1, y: 0, duration: 1.1, ease: 'expo.out', stagger: 0.06,
-            onComplete: function () { releaseWillChange(this.targets()); },
+            onComplete: releaseWillChange,
             scrollTrigger: { trigger: header, start: 'top 92%', once: true } });
       });
     });
