@@ -143,7 +143,7 @@
     window.lenis = lenis;
   })();
 
-    /* ===================================================================
+        /* ===================================================================
      02  GLOBAL — FADE-INS
      Der Startzustand (opacity 0) haengt an html.fade-ready, das ein
      Inline-Script im Head sofort setzt. Faellt JS aus, wird die Klasse
@@ -154,6 +154,16 @@
      frueh (top 92%), damit nichts aufploppt, was laengst im Bild ist.
      will-change wird nach der Animation zurueckgenommen: sonst bleiben
      Hero und alle Section-Header dauerhaft eigene Compositing-Ebenen.
+
+     GEAENDERT 18.09. — HERO LAEUFT NICHT MEHR IN onFonts:
+     Hero und CTAs warteten auf document.fonts.ready. Dieser Block misst
+     aber keine Geometrie — er wartete ohne Gegenleistung. Die H1 ist das
+     groesste Textelement above the fold und damit LCP-Kandidat; sie stand
+     bis zum Schriftenladen auf opacity:0, zusaetzlich zu den vier
+     Scripts, die davor durchlaufen. Jede Millisekunde hier zaehlt 1:1
+     auf LCP.
+     Die Section-Header BLEIBEN in onFonts: deren ScrollTrigger rechnen
+     auf Positionen, die sich mit der Schrift noch verschieben.
 
      GEAENDERT 15.09. — HERO-CTA, ZWEITER DURCHGANG:
      Der scale-Pop mit back.out ist RAUS. Begruendung, nicht Geschmack:
@@ -200,7 +210,8 @@
       });
     }
 
-    onFonts(function () {
+    /* ---------- Hero: startet mit dem DOM, nicht mit den Fonts ---------- */
+    function heroIn() {
       // Hero: kein ScrollTrigger, liegt above the fold
       var hero = qsa('[data-fade="hero"]');
       if (hero.length) {
@@ -227,7 +238,19 @@
             stagger: CTA_STAGGER, delay: CTA_DELAY,
             onComplete: releaseWillChange });
       }
+    }
 
+    /* readyState-Abfrage statt reinem Listener: das Script laeuft im
+       Footer, DOMContentLoaded kann je nach Cache bereits durch sein —
+       ein Listener wuerde dann nie feuern und der Hero bliebe unsichtbar. */
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', heroIn);
+    } else {
+      heroIn();
+    }
+
+    /* ---------- Section-Header: brauchen die Schriftmasse ---------- */
+    onFonts(function () {
       // Section-Header: direkte Kinder staffeln (Label -> Titel)
       qsa('[data-fade="header"]').forEach(function (header) {
         gsap.fromTo(header.children,
