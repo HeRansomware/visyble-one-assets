@@ -136,7 +136,7 @@
         var target = link.getAttribute('href');
         if (!target || target === '#') return;
         e.preventDefault();
-        lenis.scrollTo(target, { offset: 0, duration: 1.2 });
+         lenis.scrollTo(target, { offset: 0, duration: 0.9 });
 
         /* Skip-Link (data-skip-lenis im Designer gesetzt): preventDefault
            oben verhindert, dass der Browser den Fokus auf das Sprungziel
@@ -1469,7 +1469,7 @@
       };
     }
 
-    /* ---------- Wort-Reveal ---------- */
+        /* ---------- Wort-Reveal ---------- */
     function buildWords(para, words) {
       gsap.to(words, {
         opacity: 1,
@@ -1496,8 +1496,11 @@
           start: 'top 90%',
           end: 'bottom 55%',
           /* scrub, NICHT once: ohne scrub laeuft der Reveal als Autoplay
-             durch, sobald er einmal getriggert wurde. */
-          scrub: true,
+             durch, sobald er einmal getriggert wurde.
+             0.2 statt true: derselbe Wert wie der Titel-Stack darueber.
+             Roher Scrub folgt jedem Scroll-Tick ungefiltert — bei 30
+             Woertern mit Blur-Filter wird das Rauschen sichtbar. */
+          scrub: 0.2,
           invalidateOnRefresh: true,
           refreshPriority: 0
         }
