@@ -107,7 +107,7 @@
     return q;
   }
 
-  /* ===================================================================
+   /* ===================================================================
      01  GLOBAL — LENIS SMOOTH SCROLL
      =================================================================== */
   (function () {
@@ -137,6 +137,19 @@
         if (!target || target === '#') return;
         e.preventDefault();
         lenis.scrollTo(target, { offset: 0, duration: 1.2 });
+
+        /* Skip-Link (data-skip-lenis im Designer gesetzt): preventDefault
+           oben verhindert, dass der Browser den Fokus auf das Sprungziel
+           setzt — bei einem normalen Anker-Link ist das egal, beim
+           Skip-Link aber sein einziger Zweck. Ohne das hier wuerde die
+           Seite zwar scrollen, der naechste Tab wuerde aber wieder in
+           der Navbar landen statt im Inhalt.
+           Das Ziel (Hero-Section) traegt tabindex="-1": fokussierbar per
+           JS, aber nicht Teil der normalen Tab-Reihenfolge. */
+        if (link.hasAttribute('data-skip-lenis')) {
+          var target_el = document.querySelector(target);
+          if (target_el) target_el.focus({ preventScroll: true });
+        }
       });
     });
 
